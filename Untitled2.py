@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 # API Key fija (configurable)
-OPENAI_API_KEY = "sk-proj-tu-api-key-aqui"  # Reemplaza con tu API key real
+OPENAI_API_KEY = "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"  # Reemplaza con tu API key real
 
 @dataclass
 class PricingPlan:
