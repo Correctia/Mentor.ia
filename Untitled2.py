@@ -1,13 +1,8 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[7]:
 
-
-get_ipython().system('pip install openai streamlit pandas numpy pillow plotly openpyxl')
-
-
-# In[9]:
+#get_ipython().system('pip install openai streamlit pandas numpy pillow plotly openpyxl')
 
 
 import streamlit as st
