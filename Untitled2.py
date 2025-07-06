@@ -602,9 +602,7 @@ def show_corrector():
         # Selección de grupo (si está disponible)
         df_groups = corrector.get_user_groups(user_id)
         selected_group = None
-        criteria = ""
-        rubric = ""
-        
+      
         if plan_info.can_create_groups and not df_groups.empty:
             group_options = ["Sin grupo"] + df_groups['name'].tolist()
             selected_group_name = st.selectbox("Grupo:", group_options)
@@ -638,6 +636,8 @@ def show_corrector():
             rubric = st.text_area("Rúbrica:", height=120)
 
         elif criteria_method == "Importar archivo":
+            criteria = ""
+            rubric = ""
             criteria_file = st.file_uploader(
                 "Subir archivo con criterios:",
                 type=['txt', 'pdf', 'png', 'jpg', 'jpeg'],
