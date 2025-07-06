@@ -602,6 +602,8 @@ def show_corrector():
         # Selección de grupo (si está disponible)
         df_groups = corrector.get_user_groups(user_id)
         selected_group = None
+        criteria = ""
+        rubric = ""
         
         if plan_info.can_create_groups and not df_groups.empty:
             group_options = ["Sin grupo"] + df_groups['name'].tolist()
