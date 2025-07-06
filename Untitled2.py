@@ -1,19 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# Con comandos mágicos (más directo)
-get_ipython().system('brew install tesseract')
-get_ipython().system('pip install pytesseract')
-
-
-# In[5]:
-
-
-get_ipython().system('pip install PyMuPDF')
-
-
-# In[7]:
-
 
 #!/usr/bin/env python
 # coding: utf-8
