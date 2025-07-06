@@ -1,0 +1,16 @@
+{
+  "name": "Python with Tesseract",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {}
+  },
+  "postCreateCommand": "apt-get update && apt-get install -y tesseract-ocr tesseract-ocr-spa && pip install pytesseract PyMuPDF pillow pandas numpy",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-toolsai.jupyter"
+      ]
+    }
+  }
+}
