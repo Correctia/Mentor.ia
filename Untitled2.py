@@ -305,28 +305,28 @@ Responde con este formato JSON:
         }
 
     def generate_criteria_from_text(self, text, subject):
-    """Genera criterios automáticamente desde texto usando DeepSeek"""
-    try:
-        response = self.client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[
-                {"role": "system", "content": f"Eres un experto en {subject}. Genera criterios de evaluación y una rúbrica basándote en el texto proporcionado."},
-                {"role": "user", "content": f"Basándote en este texto, genera criterios de evaluación y rúbrica para {subject}:\n\n{text}"}
-            ],
-            temperature=0.1,
-            max_tokens=800
-        )
+        """Genera criterios automáticamente desde texto usando DeepSeek"""
+        try:
+            response = self.client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": f"Eres un experto en {subject}. Genera criterios de evaluación y una rúbrica basándote en el texto proporcionado."},
+                    {"role": "user", "content": f"Basándote en este texto, genera criterios de evaluación y rúbrica para {subject}:\n\n{text}"}
+                ],
+                temperature=0.1,
+                max_tokens=800
+            )
         
-        # Procesar respuesta y convertir a formato JSON
-        response_text = response.choices[0].message.content
-        # Aquí deberías implementar lógica para extraer criterios y rúbrica
-        return {
-            "criteria": "Criterios extraídos del texto",
-            "rubric": "Rúbrica extraída del texto"
-        }
-    except Exception as e:
-        st.error(f"Error generando criterios: {str(e)}")
-        return None
+            # Procesar respuesta y convertir a formato JSON
+            response_text = response.choices[0].message.content
+            # Aquí deberías implementar lógica para extraer criterios y rúbrica
+            return {
+                "criteria": "Criterios extraídos del texto",
+                "rubric": "Rúbrica extraída del texto"
+            }
+        except Exception as e:
+            st.error(f"Error generando criterios: {str(e)}")
+            return None
     
     def save_exam_result(self, user_id, group_id, filename, subject, result):
         """Guarda resultado en base de datos"""
