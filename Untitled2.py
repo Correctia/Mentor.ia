@@ -695,7 +695,8 @@ def show_corrector():
             uploaded_file = st.file_uploader(
                 "Subir archivo:",
                 type=['txt', 'pdf', 'png', 'jpg', 'jpeg'],
-                help="Archivos soportados: TXT, PDF, PNG, JPG"
+                help="Archivos soportados: TXT, PDF, PNG, JPG",
+                accept_multiple_files=True
             )
             
             if uploaded_file:
