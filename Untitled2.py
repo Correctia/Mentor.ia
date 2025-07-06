@@ -33,7 +33,8 @@ st.set_page_config(
 )
 
 # API Key fija (configurable)
-OPENAI_API_KEY = "sk-proj-tu-api-key-aqui"  # Reemplaza con tu API key real
+DEEPSEEK_API_KEY = "sk-2193b6a84e2d428e963633e213d1c439"
+DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"  # Reemplaza con tu API key real
 
 @dataclass
 class PricingPlan:
@@ -184,9 +185,12 @@ class DatabaseManager:
 
 class ExamCorrector:
     def __init__(self):
-        """Corrector con API key fija"""
-        self.client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        self.db = DatabaseManager()
+    """Corrector con DeepSeek API"""
+    self.client = openai.OpenAI(
+        api_key=DEEPSEEK_API_KEY,
+        base_url=DEEPSEEK_BASE_URL
+    )
+    self.db = DatabaseManager()
     
     def extract_text_from_file(self, uploaded_file):
         """Extrae texto de archivos PDF o imágenes"""
@@ -258,7 +262,7 @@ Responde con este formato JSON:
 }}"""
 
             response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="deepseek-chat",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -299,6 +303,30 @@ Responde con este formato JSON:
             "comentario": "Corrección automática realizada.",
             "recomendaciones": ["Revisar conceptos", "Practicar más"]
         }
+
+    def generate_criteria_from_text(self, text, subject):
+    """Genera criterios automáticamente desde texto usando DeepSeek"""
+    try:
+        response = self.client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": f"Eres un experto en {subject}. Genera criterios de evaluación y una rúbrica basándote en el texto proporcionado."},
+                {"role": "user", "content": f"Basándote en este texto, genera criterios de evaluación y rúbrica para {subject}:\n\n{text}"}
+            ],
+            temperature=0.1,
+            max_tokens=800
+        )
+        
+        # Procesar respuesta y convertir a formato JSON
+        response_text = response.choices[0].message.content
+        # Aquí deberías implementar lógica para extraer criterios y rúbrica
+        return {
+            "criteria": "Criterios extraídos del texto",
+            "rubric": "Rúbrica extraída del texto"
+        }
+    except Exception as e:
+        st.error(f"Error generando criterios: {str(e)}")
+        return None
     
     def save_exam_result(self, user_id, group_id, filename, subject, result):
         """Guarda resultado en base de datos"""
