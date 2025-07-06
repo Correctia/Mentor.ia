@@ -433,6 +433,7 @@ def show_plan_selection():
                 text-align: center;
                 margin-bottom: 1rem;
                 background: white;
+                color: #333333;
             ">
                 <h3>{plan.name}</h3>
                 <h2>${plan.price_monthly}/mes</h2>
