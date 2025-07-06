@@ -696,27 +696,45 @@ def show_corrector():
             )
         
         elif input_method == "Subir archivo":
-            uploaded_file = st.file_uploader(
+            uploaded_files = st.file_uploader(
                 "Subir archivo:",
                 type=['txt', 'pdf', 'png', 'jpg', 'jpeg'],
                 help="Archivos soportados: TXT, PDF, PNG, JPG",
                 accept_multiple_files=True
             )
             
-            if uploaded_file:
-                filename = uploaded_file.name
+            if uploaded_files:
+                # Procesar todos los archivos
+                all_texts = []
+                filenames = []
                 
-                with st.spinner("Procesando archivo..."):
-                    exam_text = corrector.extract_text_from_file(uploaded_file)
+                for file in uploaded_files:
+                    if file is not None:
+                        filenames.append(file.name)
+                        with st.spinner(f"Procesando {file.name}..."):
+                            text = corrector.extract_text_from_file(file)
+                            if text:
+                                all_texts.append(f"=== ARCHIVO: {file.name} ===\n{text}")
+                            else:
+                                st.error(f"No se pudo extraer texto de {file.name}")
                 
-                if exam_text:
-                    st.success(f"✅ Archivo procesado: {len(exam_text)} caracteres")
+                if all_texts:
+                    exam_text = "\n\n--- SIGUIENTE ARCHIVO ---\n\n".join(all_texts)
+                    filename = ", ".join(filenames)
+                    st.success(f"✅ Archivos procesados: {len(uploaded_files)} archivos")
+                    st.info(f"Archivos: {filename}")
+                    st.info(f"Total de caracteres: {len(exam_text)}")
                     
-                    # Vista previa
-                    with st.expander("Vista previa del texto"):
-                        st.text(exam_text[:500] + "..." if len(exam_text) > 500 else exam_text)
+                    # Vista previa combinada
+                    with st.expander("Vista previa del texto combinado"):
+                        st.text(exam_text[:1000] + "..." if len(exam_text) > 1000 else exam_text)
                 else:
-                    st.error("No se pudo extraer texto del archivo")
+                    st.error("No se pudo extraer texto de ningún archivo")
+                    exam_text = ""
+                    filename = "error_procesamiento.txt"
+            else:
+                exam_text = ""
+                filename = "sin_archivo.txt"
     
     # Botón de corrección
     st.markdown("---")
