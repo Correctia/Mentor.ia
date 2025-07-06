@@ -187,6 +187,56 @@ class ExamCorrector:
         self.client = openai.OpenAI(api_key=OPENAI_API_KEY)
         self.db = DatabaseManager()
     
+    def get_monthly_exam_count(self, user_id):
+    """Obtiene el número de exámenes realizados por el usuario en el mes actual"""
+    try:
+        # Usar session_state como almacenamiento temporal
+        if 'monthly_exams' not in st.session_state:
+            st.session_state.monthly_exams = {}
+        
+        # Obtener el mes actual como clave
+        current_month = datetime.now().strftime("%Y-%m")
+        user_month_key = f"{user_id}_{current_month}"
+        
+        return st.session_state.monthly_exams.get(user_month_key, 0)
+        
+    except Exception as e:
+        st.error(f"Error al obtener el conteo de exámenes: {e}")
+        return 0
+
+def increment_monthly_exam_count(self, user_id):
+    """Incrementa el contador de exámenes mensuales"""
+    try:
+        if 'monthly_exams' not in st.session_state:
+            st.session_state.monthly_exams = {}
+        
+        current_month = datetime.now().strftime("%Y-%m")
+        user_month_key = f"{user_id}_{current_month}"
+        
+        if user_month_key not in st.session_state.monthly_exams:
+            st.session_state.monthly_exams[user_month_key] = 0
+        
+        st.session_state.monthly_exams[user_month_key] += 1
+        
+    except Exception as e:
+        st.error(f"Error al incrementar el conteo: {e}")
+
+def get_user_groups(self, user_id):
+    """Obtiene los grupos del usuario (versión simple)"""
+    try:
+        # Usar session_state para grupos
+        if 'user_groups' not in st.session_state:
+            st.session_state.user_groups = {}
+        
+        user_groups = st.session_state.user_groups.get(user_id, [])
+        
+        import pandas as pd
+        return pd.DataFrame(user_groups, columns=['name'])
+        
+    except Exception as e:
+        st.error(f"Error al obtener grupos: {e}")
+        return pd.DataFrame(columns=['name'])
+    
     def extract_text_from_file(self, uploaded_file):
         """Extrae texto de archivos PDF o imágenes"""
         try:
@@ -225,7 +275,9 @@ class ExamCorrector:
                 exam_text = exam_text[:max_chars] + "\n[...texto truncado...]"
             
             system_prompt = f"""Eres un profesor experto en {subject}. Evalúa el siguiente examen usando los criterios proporcionados.
-
+            
+            # ... resto de tu método correct_exam
+            
 CRITERIOS: {criteria}
 RÚBRICA: {rubric}
 
