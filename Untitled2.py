@@ -1363,7 +1363,6 @@ def show_settings():
     # Configuración de API
     st.subheader("🔑 Configuración")
 
-    ación de API
     st.subheader("🔑 Configuración de API")
     
     with st.form("api_config"):
