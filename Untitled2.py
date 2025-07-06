@@ -185,12 +185,12 @@ class DatabaseManager:
 
 class ExamCorrector:
     def __init__(self):
-    """Corrector con DeepSeek API"""
-    self.client = openai.OpenAI(
-        api_key=DEEPSEEK_API_KEY,
-        base_url=DEEPSEEK_BASE_URL
-    )
-    self.db = DatabaseManager()
+        """Corrector con DeepSeek API"""
+        self.client = openai.OpenAI(
+            api_key=DEEPSEEK_API_KEY,
+            base_url=DEEPSEEK_BASE_URL
+        )
+        self.db = DatabaseManager()
     
     def extract_text_from_file(self, uploaded_file):
         """Extrae texto de archivos PDF o imágenes"""
