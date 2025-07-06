@@ -577,28 +577,72 @@ def show_corrector():
             
             if selected_group_name != "Sin grupo":
                 selected_group = df_groups[df_groups['name'] == selected_group_name]['id'].iloc[0]
-        
-        # Criterios predefinidos
-        templates = get_default_criteria_templates()
-        
-        if subject in templates:
-            default_criteria = templates[subject]["criteria"]
-            default_rubric = templates[subject]["rubric"]
-        else:
-            default_criteria = "Criterios personalizados"
-            default_rubric = "Rúbrica personalizada"
-        
-        criteria = st.text_area(
-            "Criterios de evaluación:",
-            value=default_criteria,
-            height=100
+
+        # Método para criterios de corrección
+        st.subheader("📋 Criterios de Corrección")
+        criteria_method = st.radio(
+            "Método de criterios:",
+            ["Plantillas predefinidas", "Texto manual", "Importar archivo"],
+            key="criteria_method"
         )
+
+        if criteria_method == "Plantillas predefinidas":
+            # Código existente de plantillas
+            templates = get_default_criteria_templates()
+            if subject in templates:
+                default_criteria = templates[subject]["criteria"]
+                default_rubric = templates[subject]["rubric"]
+            else:
+                default_criteria = "Criterios personalizados"
+                default_rubric = "Rúbrica personalizada"
+    
+            criteria = st.text_area("Criterios de evaluación:", value=default_criteria, height=100)
+            rubric = st.text_area("Rúbrica:", value=default_rubric, height=120)
+
+        elif criteria_method == "Texto manual":
+            criteria = st.text_area("Criterios de evaluación:", height=100)
+            rubric = st.text_area("Rúbrica:", height=120)
+
+        elif criteria_method == "Importar archivo":
+            criteria_file = st.file_uploader(
+                "Subir archivo con criterios:",
+                type=['txt', 'pdf', 'png', 'jpg', 'jpeg'],
+                help="Sube un archivo con criterios de corrección o un examen modelo corregido",
+                key="criteria_file"
+            )
+    
+            if criteria_file:
+                with st.spinner("Extrayendo criterios del archivo..."):
+                    criteria_text = corrector.extract_text_from_file(criteria_file)
+            
+                    if criteria_text:
+                        # Generar criterios automáticamente usando IA
+                        generated_criteria = corrector.generate_criteria_from_text(criteria_text, subject)
+                
+                        if generated_criteria:
+                            criteria = generated_criteria.get('criteria', '')
+                            rubric = generated_criteria.get('rubric', '')
+                    
+                            st.success(f"✅ Criterios extraídos del archivo: {criteria_file.name}")
+                    
+                            # Mostrar vista previa
+                            with st.expander("Vista previa de criterios extraídos"):
+                                st.write("**Criterios:**")
+                                st.write(criteria)
+                                st.write("**Rúbrica:**")
+                                st.write(rubric)
+                        else:
+                            st.error("No se pudieron generar criterios del archivo")
+                            criteria = st.text_area("Criterios de evaluación:", height=100)
+                            rubric = st.text_area("Rúbrica:", height=120)
+                    else:
+                        st.error("No se pudo extraer texto del archivo")
+                        criteria = st.text_area("Criterios de evaluación:", height=100)
+                        rubric = st.text_area("Rúbrica:", height=120)
+            else:
+                criteria = st.text_area("Criterios de evaluación:", height=100)
+                rubric = st.text_area("Rúbrica:", height=120)
         
-        rubric = st.text_area(
-            "Rúbrica:",
-            value=default_rubric,
-            height=120
-        )
     
     with col2:
         st.subheader("📄 Subir Examen")
