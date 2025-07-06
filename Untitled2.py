@@ -188,21 +188,21 @@ class ExamCorrector:
         self.db = DatabaseManager()
     
     def get_monthly_exam_count(self, user_id):
-    """Obtiene el número de exámenes realizados por el usuario en el mes actual"""
-    try:
-        # Usar session_state como almacenamiento temporal
-        if 'monthly_exams' not in st.session_state:
-            st.session_state.monthly_exams = {}
+        """Obtiene el número de exámenes realizados por el usuario en el mes actual"""
+        try:
+            # Usar session_state como almacenamiento temporal
+            if 'monthly_exams' not in st.session_state:
+                st.session_state.monthly_exams = {}
         
-        # Obtener el mes actual como clave
-        current_month = datetime.now().strftime("%Y-%m")
-        user_month_key = f"{user_id}_{current_month}"
+            # Obtener el mes actual como clave
+            current_month = datetime.now().strftime("%Y-%m")
+            user_month_key = f"{user_id}_{current_month}"
         
-        return st.session_state.monthly_exams.get(user_month_key, 0)
+            return st.session_state.monthly_exams.get(user_month_key, 0)
         
-    except Exception as e:
-        st.error(f"Error al obtener el conteo de exámenes: {e}")
-        return 0
+        except Exception as e:
+            st.error(f"Error al obtener el conteo de exámenes: {e}")
+            return 0
 
 def increment_monthly_exam_count(self, user_id):
     """Incrementa el contador de exámenes mensuales"""
