@@ -47,7 +47,7 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 
 # Configuración Azure Computer Vision
 AZURE_VISION_ENDPOINT = "https://tu-recurso.cognitiveservices.azure.com/"  # Reemplaza con tu endpoint
-AZURE_VISION_KEY = "tu-clave-de-azure"  # Reemplaza con tu clave de Azure
+AZURE_VISION_KEY = "2XR9XUdGP51RIPSoBysjZBECVgZfs9oOUUpnIVdoHyrcDNgsYY3wJQQJ99BGACYeBjFXJ3w3AAAFACOGtAHx"  # Reemplaza con tu clave de Azure
 
 @dataclass
 class PricingPlan:
