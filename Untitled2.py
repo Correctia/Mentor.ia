@@ -122,119 +122,265 @@ SUBJECT_COLORS = {
     "Personalizada": "#BDC3C7"
 }
 
-class MicrosoftOCR:
-    def __init__(self):
-        self.endpoint = AZURE_VISION_ENDPOINT
-        self.key = AZURE_VISION_KEY
+import cv2
+import numpy as np
+import requests
+import time
+from PIL import Image
+import io
+
+class ImprovedMicrosoftOCR:
+    def __init__(self, endpoint, key):
+        self.endpoint = endpoint
+        self.key = key
         self.headers = {
             'Ocp-Apim-Subscription-Key': self.key,
             'Content-Type': 'application/octet-stream'
         }
-        # Usar API v4.0 para mejor reconocimiento de escritura manual
+        # Usar la versión más reciente para mejor reconocimiento
         self.read_url = f"{self.endpoint}vision/v4.0/read/analyze"
     
-    def preprocess_image(self, image_data):
-        """Preprocesa la imagen para mejorar OCR"""
+    def validate_image_quality(self, image_data):
+        """Valida calidad de imagen antes de OCR"""
         try:
-            # Convertir bytes a imagen numpy
+            # Convertir a numpy array
             nparr = np.frombuffer(image_data, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             
-            # Convertir a escala de grises
+            if img is None:
+                return False, "No se pudo cargar la imagen"
+            
+            height, width = img.shape[:2]
+            
+            # Verificar resolución mínima
+            if width < 800 or height < 600:
+                return False, f"Resolución muy baja: {width}x{height}. Mínimo recomendado: 800x600"
+            
+            # Verificar tamaño de archivo
+            if len(image_data) > 20 * 1024 * 1024:  # 20MB
+                return False, "Archivo muy grande (>20MB)"
+            
+            if len(image_data) < 50 * 1024:  # 50KB
+                return False, "Archivo muy pequeño (<50KB). Posible imagen muy comprimida"
+            
+            # Verificar calidad general (detección de borrosidad)
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            blur_score = cv2.Laplacian(gray, cv2.CV_64F).var()
             
-            # Reducir ruido
-            denoised = cv2.fastNlMeansDenoising(gray)
+            if blur_score < 100:
+                return False, f"Imagen muy borrosa (score: {blur_score:.1f}). Mínimo: 100"
             
-            # Mejorar contraste
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-            enhanced = clahe.apply(denoised)
-            
-            # Umbralización adaptativa
-            thresh = cv2.adaptiveThreshold(
-                enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                cv2.THRESH_BINARY, 11, 2
-            )
-            
-            # Convertir de vuelta a bytes
-            _, buffer = cv2.imencode('.png', thresh)
-            return buffer.tobytes()
+            return True, f"Imagen válida: {width}x{height}, blur_score: {blur_score:.1f}"
             
         except Exception as e:
-            st.warning(f"Error en preprocesamiento: {str(e)}")
-            return image_data  # Devolver imagen original si falla
+            return False, f"Error validando imagen: {str(e)}"
     
-    def extract_text_from_image(self, image_data):
-        """Extrae texto de imagen usando Microsoft OCR con mejoras"""
+    def enhance_image_for_ocr(self, image_data):
+        """Mejora imagen específicamente para OCR de escritura manual"""
         try:
-            # Preprocesar imagen
-            processed_image = self.preprocess_image(image_data)
+            # Convertir a numpy
+            nparr = np.frombuffer(image_data, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             
-            # Parámetros para escritura manual
+            if img is None:
+                return image_data
+            
+            # 1. Redimensionar si es muy grande (mantener aspect ratio)
+            height, width = img.shape[:2]
+            if width > 2000 or height > 2000:
+                scale = min(2000/width, 2000/height)
+                new_width = int(width * scale)
+                new_height = int(height * scale)
+                img = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+            
+            # 2. Convertir a escala de grises
+            if len(img.shape) == 3:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = img
+            
+            # 3. Corrección de perspectiva básica (si detecta bordes)
+            gray = self.correct_perspective(gray)
+            
+            # 4. Mejorar contraste específico para texto
+            # CLAHE (Contrast Limited Adaptive Histogram Equalization)
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+            enhanced = clahe.apply(gray)
+            
+            # 5. Reducir ruido preservando texto
+            # Filtro bilateral (reduce ruido pero mantiene bordes)
+            denoised = cv2.bilateralFilter(enhanced, 9, 75, 75)
+            
+            # 6. Sharpening específico para texto
+            kernel = np.array([[-1,-1,-1],
+                              [-1, 9,-1],
+                              [-1,-1,-1]])
+            sharpened = cv2.filter2D(denoised, -1, kernel)
+            
+            # 7. Binarización adaptativa para texto manuscrito
+            # Usar dos métodos y combinar
+            binary1 = cv2.adaptiveThreshold(
+                sharpened, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                cv2.THRESH_BINARY, 15, 10
+            )
+            
+            binary2 = cv2.adaptiveThreshold(
+                sharpened, 255, cv2.ADAPTIVE_THRESH_MEAN_C, 
+                cv2.THRESH_BINARY, 15, 10
+            )
+            
+            # Combinar ambos métodos
+            combined = cv2.bitwise_and(binary1, binary2)
+            
+            # 8. Morfología para limpiar texto
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2,2))
+            cleaned = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel)
+            
+            # 9. Convertir de vuelta a bytes
+            success, buffer = cv2.imencode('.png', cleaned, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+            if success:
+                return buffer.tobytes()
+            else:
+                return image_data
+                
+        except Exception as e:
+            print(f"Error en mejora de imagen: {str(e)}")
+            return image_data
+    
+    def correct_perspective(self, gray):
+        """Corrección básica de perspectiva"""
+        try:
+            # Detectar bordes
+            edges = cv2.Canny(gray, 50, 150)
+            
+            # Encontrar contornos
+            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Buscar el contorno más grande (probablemente la hoja)
+            if contours:
+                largest_contour = max(contours, key=cv2.contourArea)
+                
+                # Aproximar a rectángulo
+                epsilon = 0.02 * cv2.arcLength(largest_contour, True)
+                approx = cv2.approxPolyDP(largest_contour, epsilon, True)
+                
+                # Si encontramos 4 puntos, corregir perspectiva
+                if len(approx) == 4:
+                    # Ordenar puntos
+                    pts = approx.reshape(4, 2)
+                    rect = np.zeros((4, 2), dtype="float32")
+                    
+                    # Top-left tiene la suma más pequeña
+                    s = pts.sum(axis=1)
+                    rect[0] = pts[np.argmin(s)]
+                    rect[2] = pts[np.argmax(s)]
+                    
+                    # Top-right tiene la diferencia más pequeña
+                    diff = np.diff(pts, axis=1)
+                    rect[1] = pts[np.argmin(diff)]
+                    rect[3] = pts[np.argmax(diff)]
+                    
+                    # Calcular dimensiones del rectángulo corregido
+                    width = max(
+                        np.linalg.norm(rect[0] - rect[1]),
+                        np.linalg.norm(rect[2] - rect[3])
+                    )
+                    height = max(
+                        np.linalg.norm(rect[1] - rect[2]),
+                        np.linalg.norm(rect[3] - rect[0])
+                    )
+                    
+                    # Puntos destino
+                    dst = np.array([
+                        [0, 0],
+                        [width - 1, 0],
+                        [width - 1, height - 1],
+                        [0, height - 1]
+                    ], dtype="float32")
+                    
+                    # Aplicar transformación de perspectiva
+                    M = cv2.getPerspectiveTransform(rect, dst)
+                    warped = cv2.warpPerspective(gray, M, (int(width), int(height)))
+                    
+                    return warped
+            
+            return gray
+            
+        except Exception as e:
+            print(f"Error en corrección de perspectiva: {str(e)}")
+            return gray
+    
+    def extract_text_with_validation(self, image_data):
+        """Extracción de texto con validación completa"""
+        try:
+            # 1. Validar calidad de imagen
+            is_valid, message = self.validate_image_quality(image_data)
+            if not is_valid:
+                return None, f"Imagen no válida: {message}"
+            
+            print(f"✅ Validación: {message}")
+            
+            # 2. Mejorar imagen para OCR
+            enhanced_image = self.enhance_image_for_ocr(image_data)
+            
+            # 3. Configurar parámetros específicos para escritura manual
             params = {
-                'language': 'es',  # Español
+                'language': 'es',
                 'readingOrder': 'natural',
+                'model-version': 'latest',  # Usar modelo más reciente
                 'pages': '1'
             }
             
-            # Enviar imagen para análisis
+            # 4. Enviar a Microsoft OCR
             response = requests.post(
                 self.read_url,
                 headers=self.headers,
-                data=processed_image,
-                params=params
+                data=enhanced_image,
+                params=params,
+                timeout=30
             )
             
             if response.status_code != 202:
-                st.error(f"Error en OCR: {response.status_code} - {response.text}")
-                return None
+                return None, f"Error OCR: {response.status_code} - {response.text}"
             
-            # Obtener URL de operación
+            # 5. Obtener resultado
             operation_url = response.headers.get('Operation-Location')
             if not operation_url:
-                st.error("No se recibió URL de operación")
-                return None
+                return None, "No se recibió URL de operación"
             
-            # Esperar a que se complete el análisis
-            max_attempts = 30
-            for attempt in range(max_attempts):
-                time.sleep(2)  # Mayor tiempo de espera
+            # 6. Polling para resultado
+            for attempt in range(60):  # Aumentar intentos
+                time.sleep(2)
                 
                 result_response = requests.get(
                     operation_url,
-                    headers={'Ocp-Apim-Subscription-Key': self.key}
+                    headers={'Ocp-Apim-Subscription-Key': self.key},
+                    timeout=30
                 )
                 
-                if result_response.status_code != 200:
-                    continue
+                if result_response.status_code == 200:
+                    result = result_response.json()
+                    status = result.get('status', '')
+                    
+                    if status == 'succeeded':
+                        text, confidence_info = self.extract_text_with_confidence(result)
+                        return text, confidence_info
+                    elif status == 'failed':
+                        return None, "OCR falló al procesar"
                 
-                result = result_response.json()
-                status = result.get('status', '')
-                
-                if status == 'succeeded':
-                    extracted_text = self._extract_text_from_result(result)
-                    
-                    # Verificar si se extrajo texto
-                    if not extracted_text or len(extracted_text.strip()) < 10:
-                        st.warning("OCR extrajo poco texto. Puede ser letra muy difícil de leer.")
-                        return extracted_text
-                    
-                    return extracted_text
-                    
-                elif status == 'failed':
-                    st.error("OCR falló al procesar la imagen")
-                    return None
-                    
-            st.error("Timeout en OCR - La imagen puede ser muy compleja")
-            return None
+                print(f"Intento {attempt + 1}/60...")
+            
+            return None, "Timeout en OCR"
             
         except Exception as e:
-            st.error(f"Error en Microsoft OCR: {str(e)}")
-            return None
+            return None, f"Error en OCR: {str(e)}"
     
-    def _extract_text_from_result(self, result):
-        """Extrae texto del resultado de OCR con mejor estructura"""
+    def extract_text_with_confidence(self, result):
+        """Extrae texto con información de confianza"""
         text_lines = []
+        total_confidence = 0
+        line_count = 0
+        low_confidence_count = 0
         
         analyze_result = result.get('analyzeResult', {})
         read_results = analyze_result.get('readResults', [])
@@ -245,25 +391,66 @@ class MicrosoftOCR:
                 line_text = line.get('text', '')
                 confidence = line.get('confidence', 0)
                 
-                # Solo incluir líneas con confianza razonable
-                if confidence > 0.3:  # Umbral de confianza
+                line_count += 1
+                total_confidence += confidence
+                
+                if confidence > 0.5:  # Umbral de confianza
                     text_lines.append(line_text)
-                else:
-                    # Marcar texto de baja confianza
+                elif confidence > 0.3:
                     text_lines.append(f"[?] {line_text}")
+                    low_confidence_count += 1
+                else:
+                    text_lines.append(f"[??] {line_text}")
+                    low_confidence_count += 1
         
         extracted_text = '\n'.join(text_lines)
         
-        # Agregar información de calidad
-        total_lines = len(lines) if 'lines' in locals() else 0
-        processed_lines = len(text_lines)
+        # Información de confianza
+        avg_confidence = total_confidence / line_count if line_count > 0 else 0
+        quality_ratio = (line_count - low_confidence_count) / line_count if line_count > 0 else 0
         
-        if total_lines > 0:
-            quality_ratio = processed_lines / total_lines
-            if quality_ratio < 0.5:
-                st.warning(f"Calidad de OCR baja: {quality_ratio:.1%} del texto procesado")
+        confidence_info = {
+            'avg_confidence': avg_confidence,
+            'quality_ratio': quality_ratio,
+            'total_lines': line_count,
+            'low_confidence_lines': low_confidence_count,
+            'message': f"Confianza promedio: {avg_confidence:.2f}, Calidad: {quality_ratio:.1%}"
+        }
         
-        return extracted_text
+        return extracted_text, confidence_info
+
+# Función para mostrar guías de captura
+def show_capture_guidelines():
+    """Muestra guías para mejor captura de imágenes"""
+    guidelines = {
+        "📸 Captura de Imagen": [
+            "Usa la cámara nativa del teléfono (no WhatsApp)",
+            "Configura la cámara en máxima resolución",
+            "Usa modo 'Documento' si está disponible"
+        ],
+        "💡 Iluminación": [
+            "Luz natural difusa (cerca de ventana)",
+            "Evita sombras y reflejos",
+            "Usa lámpara LED blanca si es necesario"
+        ],
+        "📐 Posicionamiento": [
+            "Coloca el examen en superficie plana",
+            "Foto perpendicular al papel (90°)",
+            "El texto debe ocupar al menos 60% de la imagen"
+        ],
+        "🔍 Calidad": [
+            "Texto nítido y enfocado",
+            "Contraste alto (papel blanco, tinta oscura)",
+            "Evita fotos movidas o borrosas"
+        ],
+        "📱 Transferencia": [
+            "Evita WhatsApp (comprime imágenes)",
+            "Usa cable USB, email o Google Drive",
+            "Si usas WhatsApp, envía como 'Documento'"
+        ]
+    }
+    
+    return guidelines
     
     def is_configured(self):
         """Verifica si Microsoft OCR está configurado"""
