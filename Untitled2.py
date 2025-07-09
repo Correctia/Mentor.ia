@@ -37,8 +37,6 @@ st.set_page_config(
 # API Keys y configuraciones
 GOOGLE_VISION_API_KEY = "AIzaSyAyGT7uDH5Feaqtc27fcF7ArgkrRO8jU0Q"
 
-# Configuración Azure Computer Vision - ACTUALIZA ESTOS VALORES
-GOOGLE_VISION_API_KEY = "tu_google_api_key_aqui"
 @dataclass
 class PricingPlan:
     name: str
