@@ -35,13 +35,10 @@ st.set_page_config(
 )
 
 # API Keys y configuraciones
-DEEPSEEK_API_KEY = "sk-2193b6a84e2d428e963633e213d1c439"
-DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
+GOOGLE_VISION_API_KEY = "AIzaSyAyGT7uDH5Feaqtc27fcF7ArgkrRO8jU0Q"
 
 # Configuración Azure Computer Vision - ACTUALIZA ESTOS VALORES
-AZURE_VISION_ENDPOINT = "https://tu-recurso.cognitiveservices.azure.com/"
-AZURE_VISION_KEY = "2XR9XUdGP51RIPSoBysjZBECVgZfs9oOUUpnIVdoHyrcDNgsYY3wJQQJ99BGACYeBjFXJ3w3AAAFACOGtAHx"
-
+GOOGLE_VISION_API_KEY = "tu_google_api_key_aqui"
 @dataclass
 class PricingPlan:
     name: str
@@ -129,17 +126,18 @@ import time
 from PIL import Image
 import io
 
-class ImprovedMicrosoftOCR:
-    def __init__(self, endpoint, key):
-        self.endpoint = endpoint
-        self.key = key
-        self.headers = {
-            'Ocp-Apim-Subscription-Key': self.key,
-            'Content-Type': 'application/octet-stream'
-        }
-        # Usar la versión más reciente para mejor reconocimiento
-        self.read_url = f"{self.endpoint}vision/v4.0/read/analyze"
-    
+import cv2
+import numpy as np
+import requests
+import time
+import base64
+import json
+
+class ImprovedGoogleOCR:
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.vision_url = f"https://vision.googleapis.com/v1/images:annotate?key={self.api_key}"
+        
     def validate_image_quality(self, image_data):
         """Valida calidad de imagen antes de OCR"""
         try:
@@ -156,7 +154,7 @@ class ImprovedMicrosoftOCR:
             if width < 800 or height < 600:
                 return False, f"Resolución muy baja: {width}x{height}. Mínimo recomendado: 800x600"
             
-            # Verificar tamaño de archivo
+            # Verificar tamaño de archivo (Google Vision API límite: 20MB)
             if len(image_data) > 20 * 1024 * 1024:  # 20MB
                 return False, "Archivo muy grande (>20MB)"
             
@@ -311,7 +309,7 @@ class ImprovedMicrosoftOCR:
             return gray
     
     def extract_text_with_validation(self, image_data):
-        """Extracción de texto con validación completa"""
+        """Extracción de texto con validación completa usando Google Cloud Vision"""
         try:
             # 1. Validar calidad de imagen
             is_valid, message = self.validate_image_quality(image_data)
@@ -323,85 +321,178 @@ class ImprovedMicrosoftOCR:
             # 2. Mejorar imagen para OCR
             enhanced_image = self.enhance_image_for_ocr(image_data)
             
-            # 3. Configurar parámetros específicos para escritura manual
-            params = {
-                'language': 'es',
-                'readingOrder': 'natural',
-                'model-version': 'latest',  # Usar modelo más reciente
-                'pages': '1'
+            # 3. Codificar imagen en base64 para Google Vision API
+            image_base64 = base64.b64encode(enhanced_image).decode('utf-8')
+            
+            # 4. Configurar request para Google Vision API
+            request_payload = {
+                "requests": [
+                    {
+                        "image": {
+                            "content": image_base64
+                        },
+                        "features": [
+                            {
+                                "type": "DOCUMENT_TEXT_DETECTION",
+                                "maxResults": 1
+                            }
+                        ],
+                        "imageContext": {
+                            "languageHints": ["es"]  # Español
+                        }
+                    }
+                ]
             }
             
-            # 4. Enviar a Microsoft OCR
+            # 5. Enviar request a Google Vision API
+            headers = {
+                'Content-Type': 'application/json'
+            }
+            
             response = requests.post(
-                self.read_url,
-                headers=self.headers,
-                data=enhanced_image,
-                params=params,
-                timeout=30
+                self.vision_url,
+                headers=headers,
+                json=request_payload,
+                timeout=60
             )
             
-            if response.status_code != 202:
-                return None, f"Error OCR: {response.status_code} - {response.text}"
+            if response.status_code != 200:
+                return None, f"Error Google Vision API: {response.status_code} - {response.text}"
             
-            # 5. Obtener resultado
-            operation_url = response.headers.get('Operation-Location')
-            if not operation_url:
-                return None, "No se recibió URL de operación"
+            # 6. Procesar respuesta
+            result = response.json()
             
-            # 6. Polling para resultado
-            for attempt in range(60):  # Aumentar intentos
-                time.sleep(2)
+            if 'responses' in result and len(result['responses']) > 0:
+                vision_response = result['responses'][0]
                 
-                result_response = requests.get(
-                    operation_url,
-                    headers={'Ocp-Apim-Subscription-Key': self.key},
-                    timeout=30
-                )
+                # Verificar errores
+                if 'error' in vision_response:
+                    error_msg = vision_response['error'].get('message', 'Error desconocido')
+                    return None, f"Error en Google Vision: {error_msg}"
                 
-                if result_response.status_code == 200:
-                    result = result_response.json()
-                    status = result.get('status', '')
-                    
-                    if status == 'succeeded':
-                        text, confidence_info = self.extract_text_with_confidence(result)
-                        return text, confidence_info
-                    elif status == 'failed':
-                        return None, "OCR falló al procesar"
-                
-                print(f"Intento {attempt + 1}/60...")
-            
-            return None, "Timeout en OCR"
+                # Extraer texto con información de confianza
+                text, confidence_info = self.extract_text_with_confidence(vision_response)
+                return text, confidence_info
+            else:
+                return None, "No se recibió respuesta válida de Google Vision"
             
         except Exception as e:
             return None, f"Error en OCR: {str(e)}"
     
-    def extract_text_with_confidence(self, result):
-        """Extrae texto con información de confianza"""
+    def extract_text_with_confidence(self, vision_response):
+        """Extrae texto con información de confianza de Google Vision"""
+        text_annotations = vision_response.get('textAnnotations', [])
+        
+        if not text_annotations:
+            return "", {
+                'avg_confidence': 0,
+                'quality_ratio': 0,
+                'total_lines': 0,
+                'low_confidence_lines': 0,
+                'message': "No se detectó texto"
+            }
+        
+        # El primer elemento contiene todo el texto detectado
+        full_text = text_annotations[0].get('description', '')
+        
+        # Obtener información detallada de páginas y bloques
+        full_text_annotation = vision_response.get('fullTextAnnotation', {})
+        
+        if not full_text_annotation:
+            return full_text, {
+                'avg_confidence': 0.8,  # Valor por defecto para Google Vision
+                'quality_ratio': 0.8,
+                'total_lines': len(full_text.split('\n')),
+                'low_confidence_lines': 0,
+                'message': "Texto extraído sin información detallada de confianza"
+            }
+        
+        # Procesar páginas y bloques para obtener confianza detallada
+        pages = full_text_annotation.get('pages', [])
+        
         text_lines = []
         total_confidence = 0
         line_count = 0
         low_confidence_count = 0
         
-        analyze_result = result.get('analyzeResult', {})
-        read_results = analyze_result.get('readResults', [])
+        for page in pages:
+            blocks = page.get('blocks', [])
+            for block in blocks:
+                paragraphs = block.get('paragraphs', [])
+                for paragraph in paragraphs:
+                    words = paragraph.get('words', [])
+                    
+                    # Agrupar palabras por línea (aproximado)
+                    line_words = []
+                    current_line_y = None
+                    
+                    for word in words:
+                        word_confidence = word.get('confidence', 0.8)
+                        
+                        # Reconstruir palabra de símbolos
+                        symbols = word.get('symbols', [])
+                        word_text = ''.join([symbol.get('text', '') for symbol in symbols])
+                        
+                        # Obtener posición Y aproximada
+                        bounding_box = word.get('boundingBox', {})
+                        vertices = bounding_box.get('vertices', [])
+                        if vertices:
+                            word_y = vertices[0].get('y', 0)
+                            
+                            # Si es una nueva línea (diferencia Y > 20 pixels)
+                            if current_line_y is None or abs(word_y - current_line_y) > 20:
+                                if line_words:
+                                    # Procesar línea anterior
+                                    line_text = ' '.join([w['text'] for w in line_words])
+                                    line_conf = sum([w['confidence'] for w in line_words]) / len(line_words)
+                                    
+                                    line_count += 1
+                                    total_confidence += line_conf
+                                    
+                                    if line_conf > 0.7:
+                                        text_lines.append(line_text)
+                                    elif line_conf > 0.5:
+                                        text_lines.append(f"[?] {line_text}")
+                                        low_confidence_count += 1
+                                    else:
+                                        text_lines.append(f"[??] {line_text}")
+                                        low_confidence_count += 1
+                                
+                                # Iniciar nueva línea
+                                line_words = []
+                                current_line_y = word_y
+                            
+                            line_words.append({
+                                'text': word_text,
+                                'confidence': word_confidence
+                            })
+                    
+                    # Procesar última línea
+                    if line_words:
+                        line_text = ' '.join([w['text'] for w in line_words])
+                        line_conf = sum([w['confidence'] for w in line_words]) / len(line_words)
+                        
+                        line_count += 1
+                        total_confidence += line_conf
+                        
+                        if line_conf > 0.7:
+                            text_lines.append(line_text)
+                        elif line_conf > 0.5:
+                            text_lines.append(f"[?] {line_text}")
+                            low_confidence_count += 1
+                        else:
+                            text_lines.append(f"[??] {line_text}")
+                            low_confidence_count += 1
         
-        for read_result in read_results:
-            lines = read_result.get('lines', [])
-            for line in lines:
-                line_text = line.get('text', '')
-                confidence = line.get('confidence', 0)
-                
-                line_count += 1
-                total_confidence += confidence
-                
-                if confidence > 0.5:  # Umbral de confianza
-                    text_lines.append(line_text)
-                elif confidence > 0.3:
-                    text_lines.append(f"[?] {line_text}")
-                    low_confidence_count += 1
-                else:
-                    text_lines.append(f"[??] {line_text}")
-                    low_confidence_count += 1
+        # Si no se pudo procesar por líneas, usar texto completo
+        if not text_lines:
+            return full_text, {
+                'avg_confidence': 0.8,
+                'quality_ratio': 0.8,
+                'total_lines': len(full_text.split('\n')),
+                'low_confidence_lines': 0,
+                'message': "Texto extraído (confianza estimada: 80%)"
+            }
         
         extracted_text = '\n'.join(text_lines)
         
@@ -419,7 +510,6 @@ class ImprovedMicrosoftOCR:
         
         return extracted_text, confidence_info
 
-# Función para mostrar guías de captura
 def show_capture_guidelines():
     """Muestra guías para mejor captura de imágenes"""
     guidelines = {
