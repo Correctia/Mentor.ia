@@ -1,8 +1,8 @@
-numpy<2
+numpy==1.21.6
 opencv-python-headless==4.5.5.64
-streamlit
+streamlit==1.26.0
 openai
-pandas
+pandas==1.3.5
 pillow
 plotly
 PyMuPDF
