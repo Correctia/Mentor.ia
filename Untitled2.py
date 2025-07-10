@@ -745,70 +745,405 @@ class ExamCorrector:
                         text_quality = 0.9
                     else:
                         # Usar OCR en la página
-                        if self.microsoft_ocr.is_configured():
-                            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # Mayor resolución
-                            img_data = pix.tobytes("png")
-                            
-                            ocr_text = self.microsoft_ocr.extract_text_from_image(img_data)
-                            if ocr_text and len(ocr_text.strip()) > 10:
-                                text += ocr_text + "\n"
-                                ocr_method = "microsoft_ocr"
-                                text_quality = 0.7
+                        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # Mayor resolución
+                        img_data = pix.tobytes("png")
+                        
+                        ocr_text = self.microsoft_ocr.extract_text_from_image(img_data)
+                        if ocr_text and len(ocr_text.strip()) > 10:
+                            text += ocr_text + "\n"
+                            ocr_method = "google_ocr"
+                            text_quality = 0.7
                             else:
-                                st.warning(f"OCR no pudo extraer texto de la página {page_num + 1}")
-                        else:
-                            st.warning("Microsoft OCR no configurado")
-                            ocr_method = "not_configured"
+                                text += "[Página sin texto reconocido]\n"
+                            text_quality = 0.3
                 
                 pdf_document.close()
                 
-                # Validar calidad del texto extraído
-                if len(text.strip()) < 20:
-                    st.error("Texto extraído muy corto. Verifica la calidad de la imagen.")
-                    return None, "insufficient_text", 0.0
-                
-                return text, ocr_method, text_quality
-            
             elif file_type.startswith("image/"):
-                # OCR para imágenes
-                if self.microsoft_ocr.is_configured():
-                    image_data = uploaded_file.read()
-                    
-                    # Verificar tamaño de imagen
-                    if len(image_data) > 20 * 1024 * 1024:  # 20MB
-                        st.error("Imagen muy grande. Máximo 20MB.")
-                        return None, "file_too_large", 0.0
-                    
-                    text = self.microsoft_ocr.extract_text_from_image(image_data)
-                    ocr_method = "microsoft_ocr"
-                    
-                    if not text:
-                        st.error("No se pudo extraer texto. Verifica que la imagen sea legible.")
-                        return None, "ocr_failed", 0.0
-                    
-                    # Evaluar calidad del texto
-                    if len(text.strip()) < 20:
-                        st.warning("Texto extraído muy corto. La escritura puede ser ilegible.")
-                        text_quality = 0.3
-                    elif "[?]" in text:
-                        st.warning("Algunas partes del texto tienen baja confianza.")
-                        text_quality = 0.5
-                    else:
-                        text_quality = 0.8
-                    
-                    return text, ocr_method, text_quality
-                else:
-                    st.error("Microsoft OCR no configurado. No se puede procesar imágenes.")
-                    return None, "not_configured", 0.0
-            
-            else:
-                # Archivo de texto
-                text = str(uploaded_file.read(), "utf-8")
-                return text, "text_file", 1.0
+                # Procesar imagen
+                image_bytes = uploaded_file.read()
                 
+                # Usar OCR mejorado con validación
+                if self.microsoft_ocr and self.microsoft_ocr.is_configured():
+                    extracted_text, confidence_info = self.microsoft_ocr.extract_text_with_validation(image_bytes)
+                    
+                    if extracted_text:
+                        text = extracted_text
+                        ocr_method = "google_ocr"
+                        text_quality = confidence_info.get('avg_confidence', 0.5)
+                    else:
+                        text = None
+                        ocr_method = "failed"
+                        text_quality = 0.0
+                        st.error(f"Error OCR: {confidence_info}")
+                else:
+                    text = None
+                    ocr_method = "no_ocr"
+                    text_quality = 0.0
+            else:
+                text = None
+                ocr_method = "unsupported_format"
+                text_quality = 0.0
+                st.error(f"Formato no soportado: {file_type}")
+            
+            return text, ocr_method, text_quality
+            
         except Exception as e:
-            st.error(f"Error procesando archivo: {str(e)}")
+            st.error(f"Error extrayendo texto: {str(e)}")
             return None, "error", 0.0
+    
+    def correct_exam(self, text, subject, rubric=None, total_points=10):
+        """Corrige examen usando DeepSeek API con rúbrica personalizada"""
+        if not self.client:
+            return None, "DeepSeek API no configurada"
+        
+        try:
+            # Prompt mejorado para corrección
+            system_prompt = f"""
+            Eres un profesor experto en {subject} con años de experiencia en corrección de exámenes.
+            
+            TAREA: Corregir el siguiente examen de manera objetiva y constructiva.
+            
+            CRITERIOS DE EVALUACIÓN:
+            - Puntuación total: {total_points} puntos
+            - Materia: {subject}
+            {"- Rúbrica específica: " + rubric if rubric else ""}
+            
+            FORMATO DE RESPUESTA (JSON):
+            {{
+                "puntuacion_total": float,
+                "puntuacion_maxima": {total_points},
+                "porcentaje": float,
+                "calificacion_letra": "A/B/C/D/F",
+                "preguntas_analizadas": [
+                    {{
+                        "numero": int,
+                        "pregunta": "texto de la pregunta",
+                        "respuesta_estudiante": "respuesta del estudiante",
+                        "puntos_obtenidos": float,
+                        "puntos_maximos": float,
+                        "es_correcta": boolean,
+                        "explicacion": "explicación detallada",
+                        "sugerencias": "sugerencias de mejora"
+                    }}
+                ],
+                "resumen_general": {{
+                    "fortalezas": ["lista de fortalezas"],
+                    "areas_mejora": ["áreas a mejorar"],
+                    "recomendaciones": ["recomendaciones específicas"]
+                }},
+                "tiempo_estimado_estudio": "tiempo recomendado para repasar",
+                "recursos_recomendados": ["recursos adicionales"]
+            }}
+            
+            INSTRUCCIONES:
+            1. Analiza cada pregunta individualmente
+            2. Asigna puntuación parcial cuando sea apropiado
+            3. Explica claramente por qué cada respuesta es correcta o incorrecta
+            4. Proporciona sugerencias constructivas
+            5. Mantén un tono profesional y alentador
+            6. Si no puedes identificar preguntas claramente, analiza el contenido general
+            """
+            
+            user_prompt = f"""
+            EXAMEN A CORREGIR:
+            {text}
+            
+            Por favor, corrige este examen siguiendo los criterios especificados y devuelve la evaluación en formato JSON.
+            """
+            
+            response = self.client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=4000,
+                temperature=0.3
+            )
+            
+            # Procesar respuesta
+            response_text = response.choices[0].message.content
+            
+            # Intentar parsear JSON
+            try:
+                correction_data = json.loads(response_text)
+                return correction_data, None
+            except json.JSONDecodeError:
+                # Si no es JSON válido, crear estructura básica
+                return {
+                    "puntuacion_total": 0,
+                    "puntuacion_maxima": total_points,
+                    "porcentaje": 0,
+                    "calificacion_letra": "F",
+                    "preguntas_analizadas": [],
+                    "resumen_general": {
+                        "fortalezas": [],
+                        "areas_mejora": ["Error en el procesamiento de la respuesta"],
+                        "recomendaciones": ["Revisar el texto del examen"]
+                    },
+                    "respuesta_raw": response_text
+                }, "Error parseando JSON"
+            
+        except Exception as e:
+            return None, f"Error en corrección: {str(e)}"
+    
+    def save_exam_result(self, user_id, group_id, filename, subject, correction_data, ocr_method, text_quality):
+        """Guarda resultado del examen en la base de datos"""
+        if not self.db:
+            return False
+        
+        try:
+            conn = sqlite3.connect('mentor_ia.db')
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO exams (user_id, group_id, filename, subject, grade, total_points, corrections, ocr_method, text_quality)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                user_id,
+                group_id,
+                filename,
+                subject,
+                correction_data.get('puntuacion_total', 0),
+                correction_data.get('puntuacion_maxima', 10),
+                json.dumps(correction_data),
+                ocr_method,
+                text_quality
+            ))
+            
+            conn.commit()
+            conn.close()
+            return True
+            
+        except Exception as e:
+            st.error(f"Error guardando resultado: {str(e)}")
+            return False
+
+def main():
+    """Función principal de la aplicación"""
+    st.title("🎓 Mentor.ia - Corrector Inteligente")
+    st.markdown("### Corrección automática de exámenes con IA")
+    
+    # Inicializar corrector
+    if 'corrector' not in st.session_state:
+        with st.spinner("Inicializando sistema..."):
+            st.session_state.corrector = ExamCorrector()
+    
+    corrector = st.session_state.corrector
+    
+    # Mostrar estado de inicialización
+    status = corrector.get_initialization_status()
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if status['deepseek_api']:
+            st.success("✅ DeepSeek API")
+        else:
+            st.error("❌ DeepSeek API")
+    
+    with col2:
+        if status['google_ocr']:
+            st.success("✅ Google OCR")
+        else:
+            st.warning("⚠️ Google OCR")
+    
+    with col3:
+        if status['database']:
+            st.success("✅ Base de datos")
+        else:
+            st.error("❌ Base de datos")
+    
+    # Mostrar errores si los hay
+    if status['errors']:
+        with st.expander("⚠️ Errores de inicialización"):
+            for error in status['errors']:
+                st.error(error)
+    
+    # Sidebar para configuración
+    with st.sidebar:
+        st.header("⚙️ Configuración")
+        
+        # Selección de materia
+        subject = st.selectbox(
+            "Materia",
+            list(SUBJECT_COLORS.keys()),
+            index=0
+        )
+        
+        # Puntuación total
+        total_points = st.number_input(
+            "Puntuación total",
+            min_value=1,
+            max_value=100,
+            value=10
+        )
+        
+        # Rúbrica personalizada
+        custom_rubric = st.text_area(
+            "Rúbrica personalizada (opcional)",
+            placeholder="Describe los criterios específicos de evaluación..."
+        )
+        
+        # Guías de captura
+        with st.expander("📸 Guías de captura"):
+            guidelines = show_capture_guidelines()
+            for category, tips in guidelines.items():
+                st.write(f"**{category}**")
+                for tip in tips:
+                    st.write(f"• {tip}")
+    
+    # Interfaz principal
+    if not corrector.is_ready():
+        st.error("❌ Sistema no está listo. Revisa la configuración de APIs.")
+        return
+    
+    # Carga de archivos
+    st.header("📁 Cargar examen")
+    
+    uploaded_file = st.file_uploader(
+        "Sube imagen o PDF del examen",
+        type=['jpg', 'jpeg', 'png', 'pdf'],
+        help="Formatos soportados: JPG, PNG, PDF"
+    )
+    
+    if uploaded_file is not None:
+        # Mostrar archivo cargado
+        st.success(f"✅ Archivo cargado: {uploaded_file.name}")
+        
+        # Vista previa si es imagen
+        if uploaded_file.type.startswith('image/'):
+            image = Image.open(uploaded_file)
+            st.image(image, caption="Vista previa", use_column_width=True)
+        
+        # Procesar archivo
+        if st.button("🔍 Procesar y corregir examen", type="primary"):
+            with st.spinner("Procesando examen..."):
+                
+                # Extraer texto
+                st.info("📝 Extrayendo texto...")
+                text, ocr_method, text_quality = corrector.extract_text_from_file(uploaded_file)
+                
+                if text:
+                    # Mostrar texto extraído
+                    with st.expander("📄 Texto extraído"):
+                        st.text_area("Texto del examen", text, height=200)
+                        st.info(f"Método: {ocr_method} | Calidad: {text_quality:.1%}")
+                    
+                    # Corregir examen
+                    st.info("🤖 Corrigiendo con IA...")
+                    correction_data, error = corrector.correct_exam(
+                        text, subject, custom_rubric, total_points
+                    )
+                    
+                    if correction_data:
+                        # Mostrar resultados
+                        st.success("✅ Examen corregido exitosamente")
+                        
+                        # Métricas principales
+                        col1, col2, col3, col4 = st.columns(4)
+                        
+                        with col1:
+                            st.metric(
+                                "Puntuación",
+                                f"{correction_data.get('puntuacion_total', 0)}/{correction_data.get('puntuacion_maxima', total_points)}"
+                            )
+                        
+                        with col2:
+                            st.metric(
+                                "Porcentaje",
+                                f"{correction_data.get('porcentaje', 0):.1f}%"
+                            )
+                        
+                        with col3:
+                            st.metric(
+                                "Calificación",
+                                correction_data.get('calificacion_letra', 'F')
+                            )
+                        
+                        with col4:
+                            st.metric(
+                                "Calidad OCR",
+                                f"{text_quality:.1%}"
+                            )
+                        
+                        # Análisis detallado
+                        st.header("📊 Análisis detallado")
+                        
+                        # Preguntas analizadas
+                        if 'preguntas_analizadas' in correction_data:
+                            st.subheader("📝 Preguntas analizadas")
+                            for i, pregunta in enumerate(correction_data['preguntas_analizadas']):
+                                with st.expander(f"Pregunta {pregunta.get('numero', i+1)}"):
+                                    col1, col2 = st.columns(2)
+                                    
+                                    with col1:
+                                        st.write("**Pregunta:**")
+                                        st.write(pregunta.get('pregunta', 'No identificada'))
+                                        
+                                        st.write("**Respuesta del estudiante:**")
+                                        st.write(pregunta.get('respuesta_estudiante', 'No identificada'))
+                                    
+                                    with col2:
+                                        st.write("**Puntuación:**")
+                                        st.write(f"{pregunta.get('puntos_obtenidos', 0)}/{pregunta.get('puntos_maximos', 0)}")
+                                        
+                                        if pregunta.get('es_correcta', False):
+                                            st.success("✅ Correcta")
+                                        else:
+                                            st.error("❌ Incorrecta")
+                                    
+                                    st.write("**Explicación:**")
+                                    st.write(pregunta.get('explicacion', 'No disponible'))
+                                    
+                                    st.write("**Sugerencias:**")
+                                    st.write(pregunta.get('sugerencias', 'No disponible'))
+                        
+                        # Resumen general
+                        if 'resumen_general' in correction_data:
+                            st.subheader("📋 Resumen general")
+                            resumen = correction_data['resumen_general']
+                            
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.write("**Fortalezas:**")
+                                for fortaleza in resumen.get('fortalezas', []):
+                                    st.write(f"• {fortaleza}")
+                            
+                            with col2:
+                                st.write("**Áreas de mejora:**")
+                                for area in resumen.get('areas_mejora', []):
+                                    st.write(f"• {area}")
+                            
+                            st.write("**Recomendaciones:**")
+                            for recomendacion in resumen.get('recomendaciones', []):
+                                st.write(f"• {recomendacion}")
+                        
+                        # Información adicional
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            if 'tiempo_estimado_estudio' in correction_data:
+                                st.info(f"⏱️ Tiempo estimado de estudio: {correction_data['tiempo_estimado_estudio']}")
+                        
+                        with col2:
+                            if 'recursos_recomendados' in correction_data:
+                                st.info("📚 Recursos recomendados:")
+                                for recurso in correction_data['recursos_recomendados']:
+                                    st.write(f"• {recurso}")
+                        
+                        # Guardar resultado
+                        if corrector.save_exam_result(
+                            1, None, uploaded_file.name, subject, 
+                            correction_data, ocr_method, text_quality
+                        ):
+                            st.success("💾 Resultado guardado exitosamente")
+                        
+                    else:
+                        st.error(f"❌ Error en la corrección: {error}")
+                else:
+                    st.error("❌ No se pudo extraer texto del archivo")
     
     def validate_extracted_text(self, text):
         """Valida la calidad del texto extraído"""
