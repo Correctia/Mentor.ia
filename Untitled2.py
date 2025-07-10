@@ -34,8 +34,19 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# API Keys y configuraciones
-GOOGLE_VISION_API_KEY = "AIzaSyAyGT7uDH5Feaqtc27fcF7ArgkrRO8jU0Q"
+# API Keys y configuraciones con manejo de errores
+try:
+    GOOGLE_VISION_API_KEY = st.secrets.get("GOOGLE_VISION_API_KEY", "AIzaSyAyGT7uDH5Feaqtc27fcF7ArgkrRO8jU0Q")
+except:
+    GOOGLE_VISION_API_KEY = os.getenv("GOOGLE_VISION_API_KEY", "AIzaSyAyGT7uDH5Feaqtc27fcF7ArgkrRO8jU0Q")
+
+# Configuración de DeepSeek API con manejo de errores
+try:
+    DEEPSEEK_API_KEY = st.secrets["DEEPSEEK_API_KEY"]
+    DEEPSEEK_BASE_URL = st.secrets.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+except:
+    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+    DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 
 @dataclass
 class PricingPlan:
@@ -121,20 +132,33 @@ import cv2
 import numpy as np
 import requests
 import time
-from PIL import Image
-import io
-
-import cv2
-import numpy as np
-import requests
-import time
 import base64
 import json
 
 class ImprovedGoogleOCR:
     def __init__(self, api_key):
+        """Inicialización con validación de API key"""
         self.api_key = api_key
+        self.is_available = False
+        self.error_message = None
+        
+        # Validar API key
+        if not api_key:
+            self.error_message = "Google Vision API key no configurada"
+            st.warning("⚠️ Google Vision API no configurada. Funcionalidad OCR limitada.")
+            return
+        
+        if len(api_key) < 30:
+            self.error_message = "Google Vision API key inválida"
+            st.warning("⚠️ Google Vision API key parece inválida.")
+            return
+        
         self.vision_url = f"https://vision.googleapis.com/v1/images:annotate?key={self.api_key}"
+        self.is_available = True
+        
+    def is_configured(self):
+        """Verifica si Google OCR está configurado correctamente"""
+        return self.is_available and self.api_key and len(self.api_key) > 30
         
     def validate_image_quality(self, image_data):
         """Valida calidad de imagen antes de OCR"""
@@ -306,8 +330,19 @@ class ImprovedGoogleOCR:
             print(f"Error en corrección de perspectiva: {str(e)}")
             return gray
     
+    def extract_text_from_image(self, image_data):
+        """Método simplificado para compatibilidad"""
+        if not self.is_configured():
+            return None
+        
+        result, info = self.extract_text_with_validation(image_data)
+        return result
+    
     def extract_text_with_validation(self, image_data):
         """Extracción de texto con validación completa usando Google Cloud Vision"""
+        if not self.is_configured():
+            return None, "Google Vision API no configurada"
+        
         try:
             # 1. Validar calidad de imagen
             is_valid, message = self.validate_image_quality(image_data)
@@ -539,13 +574,6 @@ def show_capture_guidelines():
     }
     
     return guidelines
-    
-    def is_configured(self):
-        """Verifica si Microsoft OCR está configurado"""
-        return (self.endpoint and 
-                self.key and 
-                self.endpoint != "https://tu-recurso.cognitiveservices.azure.com/" and
-                len(self.key) > 10)
 
 class DatabaseManager:
     def __init__(self):
@@ -616,26 +644,80 @@ class DatabaseManager:
         
         conn.commit()
         conn.close()
-try:
-    DEEPSEEK_API_KEY = st.secrets["DEEPSEEK_API_KEY"]
-    DEEPSEEK_BASE_URL = st.secrets.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-except:
-    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-    DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 
-if not DEEPSEEK_API_KEY:
-    st.error("Por favor configura DEEPSEEK_API_KEY en los secrets")
-    st.stop()
-    
 class ExamCorrector:
     def __init__(self):
-        """Corrector con DeepSeek API y Google OCR mejorado"""
-        self.client = openai.OpenAI(
-            api_key=DEEPSEEK_API_KEY,
-            base_url=DEEPSEEK_BASE_URL
-        )
-        self.db = DatabaseManager()
-        self.microsoft_ocr = ImprovedGoogleOCR(GOOGLE_VISION_API_KEY)
+        """Corrector con DeepSeek API y Google OCR mejorado - con manejo de errores"""
+        self.client = None
+        self.db = None
+        self.microsoft_ocr = None
+        self.initialization_errors = []
+        
+        # Inicializar base de datos
+        try:
+            self.db = DatabaseManager()
+        except Exception as e:
+            self.initialization_errors.append(f"Error base de datos: {str(e)}")
+            st.error(f"Error al inicializar base de datos: {str(e)}")
+        
+        # Inicializar DeepSeek API
+        try:
+            if not DEEPSEEK_API_KEY:
+                self.initialization_errors.append("DeepSeek API key no configurada")
+                st.error("❌ DeepSeek API key no configurada. Por favor configura DEEPSEEK_API_KEY en los secrets o variables de entorno.")
+            else:
+                self.client = openai.OpenAI(
+                    api_key=DEEPSEEK_API_KEY,
+                    base_url=DEEPSEEK_BASE_URL
+                )
+                # Verificar conexión
+                self.test_deepseek_connection()
+        except Exception as e:
+            self.initialization_errors.append(f"Error DeepSeek API: {str(e)}")
+            st.error(f"Error al inicializar DeepSeek API: {str(e)}")
+        
+        # Inicializar Google OCR
+        try:
+            if GOOGLE_VISION_API_KEY:
+                self.microsoft_ocr = ImprovedGoogleOCR(GOOGLE_VISION_API_KEY)
+                if not self.microsoft_ocr.is_configured():
+                    self.initialization_errors.append("Google Vision API no configurada correctamente")
+            else:
+                self.initialization_errors.append("Google Vision API key no encontrada")
+                st.warning("⚠️ Google Vision API no configurada. Funcionalidad OCR limitada.")
+        except Exception as e:
+            self.initialization_errors.append(f"Error Google OCR: {str(e)}")
+            st.error(f"Error al inicializar Google OCR: {str(e)}")
+    
+    def test_deepseek_connection(self):
+        """Verificar conexión con DeepSeek API"""
+        try:
+            response = self.client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{"role": "user", "content": "test"}],
+                max_tokens=10
+            )
+            return True
+        except Exception as e:
+            self.initialization_errors.append(f"Error conectando con DeepSeek: {str(e)}")
+            st.error(f"Error conectando con DeepSeek API: {str(e)}")
+            return False
+    
+    def is_ready(self):
+        """Verifica si el corrector está listo para funcionar"""
+        return (self.client is not None and 
+                self.db is not None and 
+                len(self.initialization_errors) == 0)
+    
+    def get_initialization_status(self):
+        """Retorna el estado de inicialización"""
+        status = {
+            'deepseek_api': self.client is not None,
+            'database': self.db is not None,
+            'google_ocr': self.microsoft_ocr is not None and self.microsoft_ocr.is_configured(),
+            'errors': self.initialization_errors
+        }
+        return status
     
     def extract_text_from_file(self, uploaded_file):
         """Extrae texto de archivos con validación mejorada"""
