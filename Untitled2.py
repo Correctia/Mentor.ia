@@ -635,7 +635,7 @@ class ExamCorrector:
             base_url=DEEPSEEK_BASE_URL
         )
         self.db = DatabaseManager()
-        self.microsoft_ocr = MicrosoftOCR()
+        self.microsoft_ocr = ImprovedGoogleOCR()
     
     def extract_text_from_file(self, uploaded_file):
         """Extrae texto de archivos con validación mejorada"""
