@@ -616,10 +616,20 @@ class DatabaseManager:
         
         conn.commit()
         conn.close()
+try:
+    DEEPSEEK_API_KEY = st.secrets["DEEPSEEK_API_KEY"]
+    DEEPSEEK_BASE_URL = st.secrets.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+except:
+    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+    DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 
+if not DEEPSEEK_API_KEY:
+    st.error("Por favor configura DEEPSEEK_API_KEY en los secrets")
+    st.stop()
+    
 class ExamCorrector:
     def __init__(self):
-        """Corrector con DeepSeek API y Microsoft OCR mejorado"""
+        """Corrector con DeepSeek API y Google OCR mejorado"""
         self.client = openai.OpenAI(
             api_key=DEEPSEEK_API_KEY,
             base_url=DEEPSEEK_BASE_URL
