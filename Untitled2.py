@@ -1191,342 +1191,342 @@ def main():
                 else:
                     st.error("❌ No se pudo extraer texto del archivo")
     
-    def validate_extracted_text(self, text):
-        """Valida la calidad del texto extraído"""
-        if not text or len(text.strip()) < 10:
-            return False, "Texto demasiado corto"
+        def validate_extracted_text(self, text):
+            """Valida la calidad del texto extraído"""
+            if not text or len(text.strip()) < 10:
+                return False, "Texto demasiado corto"
         
         # Verificar si hay contenido coherente
-        words = text.split()
-        if len(words) < 5:
-            return False, "Muy pocas palabras extraídas"
+            words = text.split()
+            if len(words) < 5:
+                return False, "Muy pocas palabras extraídas"
         
         # Verificar caracteres especiales excesivos
-        special_chars = sum(1 for c in text if not c.isalnum() and c not in ' \n\t.,;:!?-')
-        if special_chars / len(text) > 0.3:
-            return False, "Demasiados caracteres especiales - posible error OCR"
+            special_chars = sum(1 for c in text if not c.isalnum() and c not in ' \n\t.,;:!?-')
+            if special_chars / len(text) > 0.3:
+                return False, "Demasiados caracteres especiales - posible error OCR"
         
-        return True, "Texto válido"
+            return True, "Texto válido"
     
-    def correct_exam(self, exam_text, criteria, rubric, subject="General"):
-        """Corrección con IA mejorada"""
-        try:
+        def correct_exam(self, exam_text, criteria, rubric, subject="General"):
+            """Corrección con IA mejorada"""
+            try:
             # Validar texto extraído
-            is_valid, validation_msg = self.validate_extracted_text(exam_text)
-            if not is_valid:
-                st.error(f"Problema con el texto extraído: {validation_msg}")
-                return self.create_error_correction(validation_msg)
+                is_valid, validation_msg = self.validate_extracted_text(exam_text)
+                if not is_valid:
+                    st.error(f"Problema con el texto extraído: {validation_msg}")
+                    return self.create_error_correction(validation_msg)
             
             # Limpiar texto
-            cleaned_text = self.clean_extracted_text(exam_text)
+                cleaned_text = self.clean_extracted_text(exam_text)
             
             # Truncar texto si es muy largo
-            max_chars = 6000
-            if len(cleaned_text) > max_chars:
-                cleaned_text = cleaned_text[:max_chars] + "\n[...texto truncado...]"
+                max_chars = 6000
+                if len(cleaned_text) > max_chars:
+                    cleaned_text = cleaned_text[:max_chars] + "\n[...texto truncado...]"
             
-            system_prompt = f"""Eres un profesor experto en {subject}. 
+                system_prompt = f"""Eres un profesor experto en {subject}. 
             
-IMPORTANTE: Debes evaluar el examen basándote en el contenido extraído, aunque tenga errores de OCR.
-Ignora errores tipográficos obvios causados por OCR y enfócate en el contenido académico.
+    IMPORTANTE: Debes evaluar el examen basándote en el contenido extraído, aunque tenga errores de OCR.
+    Ignora errores tipográficos obvios causados por OCR y enfócate en el contenido académico.
 
-CRITERIOS DE EVALUACIÓN: {criteria}
-RÚBRICA: {rubric}
+    CRITERIOS DE EVALUACIÓN: {criteria}
+    RÚBRICA: {rubric}
 
-INSTRUCCIONES:
-1. Asigna una calificación entre 0 y 100 puntos
-2. Si el texto parece ilegible o sin contenido académico, explica por qué
-3. Considera el esfuerzo del estudiante aunque haya errores de OCR
-4. Proporciona comentarios constructivos
+    INSTRUCCIONES:
+    1. Asigna una calificación entre 0 y 100 puntos
+    2. Si el texto parece ilegible o sin contenido académico, explica por qué
+    3. Considera el esfuerzo del estudiante aunque haya errores de OCR
+    4. Proporciona comentarios constructivos
 
-Responde en formato JSON válido."""
+    Responde en formato JSON válido."""
 
-            user_prompt = f"""TEXTO DEL EXAMEN:
-{cleaned_text}
+                user_prompt = f"""TEXTO DEL EXAMEN:
+    {cleaned_text}
 
-Evalúa este examen y responde con este formato JSON exacto:
-{{
-    "nota_final": {{
-        "puntuacion": 75,
-        "puntuacion_maxima": 100,
-        "porcentaje": 75,
-        "letra": "B"
-    }},
-    "evaluaciones": [
-        {{
-            "seccion": "Análisis del Contenido",
-            "puntos": 75,
-            "max_puntos": 100,
-            "comentario": "Comentario sobre el contenido académico",
-            "fortalezas": ["Fortaleza 1", "Fortaleza 2"],
-            "mejoras": ["Mejora 1", "Mejora 2"]
-        }}
-    ],
-    "comentario": "Comentario general sobre el examen y la calidad del texto extraído",
-    "recomendaciones": ["Recomendación 1", "Recomendación 2"],
-    "calidad_texto": "Evaluación de la calidad del texto extraído"
-}}"""
+    Evalúa este examen y responde con este formato JSON exacto:
+    {{
+        "nota_final": {{
+            "puntuacion": 75,
+            "puntuacion_maxima": 100,
+            "porcentaje": 75,
+            "letra": "B"
+        }},
+        "evaluaciones": [
+            {{
+                "seccion": "Análisis del Contenido",
+                "puntos": 75,
+                "max_puntos": 100,
+                "comentario": "Comentario sobre el contenido académico",
+                "fortalezas": ["Fortaleza 1", "Fortaleza 2"],
+                "mejoras": ["Mejora 1", "Mejora 2"]
+            }}
+        ],
+        "comentario": "Comentario general sobre el examen y la calidad del texto extraído",
+        "recomendaciones": ["Recomendación 1", "Recomendación 2"],
+        "calidad_texto": "Evaluación de la calidad del texto extraído"
+    }}"""
 
-            response = self.client.chat.completions.create(
-                model="deepseek-chat",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.1,
-                max_tokens=1500
-            )
+                response = self.client.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=1500
+                )
             
-            response_text = response.choices[0].message.content
+                response_text = response.choices[0].message.content
             
             # Limpiar respuesta JSON
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0]
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0]
+                if "```json" in response_text:
+                    response_text = response_text.split("```json")[1].split("```")[0]
+                elif "```" in response_text:
+                    response_text = response_text.split("```")[1].split("```")[0]
             
             # Parsear JSON
-            try:
-                result = json.loads(response_text)
+                try:
+                    result = json.loads(response_text)
                 
                 # Validar que tenga la estructura mínima
-                if "nota_final" not in result:
-                    raise ValueError("Respuesta sin nota_final")
+                    if "nota_final" not in result:
+                        raise ValueError("Respuesta sin nota_final")
                 
-                return result
+                    return result
                 
-            except json.JSONDecodeError as e:
-                st.error(f"Error parseando respuesta JSON: {str(e)}")
-                return self.create_fallback_correction(exam_text)
+                except json.JSONDecodeError as e:
+                    st.error(f"Error parseando respuesta JSON: {str(e)}")
+                    return self.create_fallback_correction(exam_text)
             
-        except Exception as e:
-            st.error(f"Error en corrección: {str(e)}")
-            return self.create_fallback_correction(exam_text)
+            except Exception as e:
+                st.error(f"Error en corrección: {str(e)}")
+                return self.create_fallback_correction(exam_text)
     
-    def clean_extracted_text(self, text):
-        """Limpia el texto extraído por OCR"""
+        def clean_extracted_text(self, text):
+            """Limpia el texto extraído por OCR"""
         # Eliminar caracteres extraños comunes en OCR
-        text = text.replace('|', 'l')
-        text = text.replace('0', 'o')  # En algunos contextos
-        text = text.replace('5', 's')  # En algunos contextos
+            text = text.replace('|', 'l')
+            text = text.replace('0', 'o')  # En algunos contextos
+            text = text.replace('5', 's')  # En algunos contextos
         
         # Eliminar líneas muy cortas que pueden ser ruido
-        lines = text.split('\n')
-        cleaned_lines = []
+            lines = text.split('\n')
+            cleaned_lines = []
         
-        for line in lines:
-            line = line.strip()
-            if len(line) > 2 and not line.startswith('[?]'):
-                cleaned_lines.append(line)
+            for line in lines:
+                line = line.strip()
+                if len(line) > 2 and not line.startswith('[?]'):
+                    cleaned_lines.append(line)
         
-        return '\n'.join(cleaned_lines)
+            return '\n'.join(cleaned_lines)
     
-    def create_error_correction(self, error_msg):
-        """Crea una corrección de error cuando OCR falla"""
-        return {
-            "nota_final": {
-                "puntuacion": 0,
-                "puntuacion_maxima": 100,
-                "porcentaje": 0,
-                "letra": "F"
-            },
-            "evaluaciones": [{
-                "seccion": "Error de Procesamiento",
-                "puntos": 0,
-                "max_puntos": 100,
-                "comentario": f"No se pudo evaluar el examen: {error_msg}",
-                "fortalezas": [],
-                "mejoras": ["Verificar calidad de la imagen", "Usar imagen más clara"]
-            }],
-            "comentario": f"Error en procesamiento: {error_msg}",
-            "recomendaciones": [
-                "Verificar que la imagen sea clara y legible",
-                "Asegurar buena iluminación",
-                "Usar mayor resolución",
-                "Verificar que el texto sea lo suficientemente grande"
-            ],
-            "calidad_texto": "Error en extracción"
-        }
-    
-    def create_fallback_correction(self, exam_text=""):
-        """Corrección de emergencia mejorada"""
-        # Intentar evaluar longitud del texto
-        if len(exam_text.strip()) < 50:
-            puntuacion = 30
-            letra = "F"
-            comentario = "Texto extraído muy corto - posible problema de OCR"
-        else:
-            puntuacion = 60
-            letra = "D"
-            comentario = "Evaluación básica - problema en procesamiento avanzado"
-        
-        return {
-            "nota_final": {
-                "puntuacion": puntuacion,
-                "puntuacion_maxima": 100,
-                "porcentaje": puntuacion,
-                "letra": letra
-            },
-            "evaluaciones": [{
-                "seccion": "Evaluación Básica",
-                "puntos": puntuacion,
-                "max_puntos": 100,
-                "comentario": comentario,
-                "fortalezas": ["Envío completado"],
-                "mejoras": ["Mejorar legibilidad", "Verificar calidad de imagen"]
-            }],
-            "comentario": "Corrección automática básica aplicada",
-            "recomendaciones": [
-                "Mejorar calidad de la imagen",
-                "Verificar configuración OCR",
-                "Usar letra más clara"
-            ]
-        }
-
-    def generate_criteria_from_text(self, text, subject):
-        """Genera criterios automáticamente desde texto usando DeepSeek"""
-        try:
-            # Verificar que el texto sea válido
-            if not text or len(text.strip()) < 20:
-                return {
-                    "criteria": f"Criterios básicos para {subject}",
-                    "rubric": "Excelente (90-100), Bueno (70-89), Regular (50-69), Deficiente (0-49)"
-                }
-            
-            response = self.client.chat.completions.create(
-                model="deepseek-chat",
-                messages=[
-                    {"role": "system", "content": f"Eres un experto en {subject}. Genera criterios de evaluación basándote en el texto del examen."},
-                    {"role": "user", "content": f"Basándote en este texto de examen de {subject}, genera criterios de evaluación específicos:\n\n{text[:1000]}"}
+        def create_error_correction(self, error_msg):
+            """Crea una corrección de error cuando OCR falla"""
+            return {
+                "nota_final": {
+                    "puntuacion": 0,
+                    "puntuacion_maxima": 100,
+                    "porcentaje": 0,
+                    "letra": "F"
+                },
+                "evaluaciones": [{
+                    "seccion": "Error de Procesamiento",
+                    "puntos": 0,
+                    "max_puntos": 100,
+                    "comentario": f"No se pudo evaluar el examen: {error_msg}",
+                    "fortalezas": [],
+                    "mejoras": ["Verificar calidad de la imagen", "Usar imagen más clara"]
+                }],
+                "comentario": f"Error en procesamiento: {error_msg}",
+                "recomendaciones": [
+                    "Verificar que la imagen sea clara y legible",
+                    "Asegurar buena iluminación",
+                    "Usar mayor resolución",
+                    "Verificar que el texto sea lo suficientemente grande"
                 ],
-                temperature=0.1,
-                max_tokens=400
-            )
+                "calidad_texto": "Error en extracción"
+            }
+    
+        def create_fallback_correction(self, exam_text=""):
+            """Corrección de emergencia mejorada"""
+        # Intentar evaluar longitud del texto
+            if len(exam_text.strip()) < 50:
+                puntuacion = 30
+                letra = "F"
+                comentario = "Texto extraído muy corto - posible problema de OCR"
+            else:
+                puntuacion = 60
+                letra = "D"
+                comentario = "Evaluación básica - problema en procesamiento avanzado"
         
-            response_text = response.choices[0].message.content
+            return {
+                "nota_final": {
+                    "puntuacion": puntuacion,
+                    "puntuacion_maxima": 100,
+                    "porcentaje": puntuacion,
+                    "letra": letra
+                },
+                "evaluaciones": [{
+                    "seccion": "Evaluación Básica",
+                    "puntos": puntuacion,
+                    "max_puntos": 100,
+                    "comentario": comentario,
+                    "fortalezas": ["Envío completado"],
+                    "mejoras": ["Mejorar legibilidad", "Verificar calidad de imagen"]
+                }],
+                "comentario": "Corrección automática básica aplicada",
+                "recomendaciones": [
+                    "Mejorar calidad de la imagen",
+                    "Verificar configuración OCR",
+                    "Usar letra más clara"
+                ]
+            }
+
+        def generate_criteria_from_text(self, text, subject):
+            """Genera criterios automáticamente desde texto usando DeepSeek"""
+            try:
+            # Verificar que el texto sea válido
+                if not text or len(text.strip()) < 20:
+                    return {
+                        "criteria": f"Criterios básicos para {subject}",
+                        "rubric": "Excelente (90-100), Bueno (70-89), Regular (50-69), Deficiente (0-49)"
+                    }
+            
+                response = self.client.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=[
+                        {"role": "system", "content": f"Eres un experto en {subject}. Genera criterios de evaluación basándote en el texto del examen."},
+                        {"role": "user", "content": f"Basándote en este texto de examen de {subject}, genera criterios de evaluación específicos:\n\n{text[:1000]}"}
+                    ],
+                    temperature=0.1,
+                    max_tokens=400
+                )
+        
+                response_text = response.choices[0].message.content
             
             # Extraer criterios y rúbrica
-            if "criterios" in response_text.lower():
-                parts = response_text.lower().split("criterios")
-                if len(parts) > 1:
-                    criteria = parts[1].split("rúbrica")[0].strip() if "rúbrica" in parts[1] else parts[1].strip()
+                if "criterios" in response_text.lower():
+                    parts = response_text.lower().split("criterios")
+                    if len(parts) > 1:
+                        criteria = parts[1].split("rúbrica")[0].strip() if "rúbrica" in parts[1] else parts[1].strip()
+                    else:
+                        criteria = response_text
                 else:
                     criteria = response_text
-            else:
-                criteria = response_text
             
             # Generar rúbrica estándar
-            rubric = f"Rúbrica para {subject}: Excelente (90-100): Dominio completo, Bueno (70-89): Comprensión adecuada, Regular (50-69): Comprensión básica, Deficiente (0-49): No demuestra comprensión"
+                rubric = f"Rúbrica para {subject}: Excelente (90-100): Dominio completo, Bueno (70-89): Comprensión adecuada, Regular (50-69): Comprensión básica, Deficiente (0-49): No demuestra comprensión"
             
-            return {
-                "criteria": criteria[:500],  # Limitar longitud
-                "rubric": rubric
-            }
+                return {
+                    "criteria": criteria[:500],  # Limitar longitud
+                    "rubric": rubric
+                }
             
-        except Exception as e:
-            st.error(f"Error generando criterios: {str(e)}")
-            return {
-                "criteria": f"Criterios personalizados para {subject}",
-                "rubric": f"Rúbrica personalizada para {subject}"
-            }
+            except Exception as e:
+                st.error(f"Error generando criterios: {str(e)}")
+                return {
+                    "criteria": f"Criterios personalizados para {subject}",
+                    "rubric": f"Rúbrica personalizada para {subject}"
+                }
     
-    def save_exam_result(self, user_id, group_id, filename, subject, result, ocr_method="unknown", text_quality=0.0):
-        """Guarda resultado en base de datos con calidad de texto"""
-        conn = sqlite3.connect('mentor_ia.db')
-        cursor = conn.cursor()
+        def save_exam_result(self, user_id, group_id, filename, subject, result, ocr_method="unknown", text_quality=0.0):
+            """Guarda resultado en base de datos con calidad de texto"""
+            conn = sqlite3.connect('mentor_ia.db')
+            cursor = conn.cursor()
         
-        cursor.execute('''
-            INSERT INTO exams (user_id, group_id, filename, subject, grade, total_points, corrections, ocr_method, text_quality)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            user_id,
-            group_id,
-            filename,
-            subject,
-            result['nota_final']['puntuacion'],
-            result['nota_final']['puntuacion_maxima'],
-            json.dumps(result, ensure_ascii=False),
-            ocr_method,
-            text_quality
-        ))
-        
-        cursor.execute('''
-            UPDATE users SET exams_used = exams_used + 1 WHERE id = ?
-        ''', (user_id,))
-        
-        conn.commit()
-        conn.close()
-    
-    def get_user_stats(self, user_id):
-    """Obtiene estadísticas del usuario"""
-    conn = sqlite3.connect('mentor_ia.db')
-    
-    df_exams = pd.read_sql_query('''
-        SELECT e.*, g.name as group_name
-        FROM exams e
-        LEFT JOIN groups g ON e.group_id = g.id
-        WHERE e.user_id = ? 
-        ORDER BY e.created_at DESC
-        LIMIT 200
-    ''', conn, params=(user_id,))
-    
-    conn.close()
-    return df_exams
-
-    def get_or_create_user(self, username="usuario_demo", plan="free"):
-        """Obtiene o crea usuario"""
-        conn = sqlite3.connect('mentor_ia.db')
-        cursor = conn.cursor()
-    
-        cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
-        user = cursor.fetchone()
-    
-        if not user:
             cursor.execute('''
-                INSERT INTO users (username, plan, exams_used) VALUES (?, ?, 0)
-            ''', (username, plan))
+                INSERT INTO exams (user_id, group_id, filename, subject, grade, total_points, corrections, ocr_method, text_quality)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                user_id,
+                group_id,
+                filename,
+                subject,
+                result['nota_final']['puntuacion'],
+                result['nota_final']['puntuacion_maxima'],
+                json.dumps(result, ensure_ascii=False),
+                ocr_method,
+                text_quality
+            ))
+        
+            cursor.execute('''
+                UPDATE users SET exams_used = exams_used + 1 WHERE id = ?
+            ''', (user_id,))
+        
             conn.commit()
+            conn.close()
+    
+        def get_user_stats(self, user_id):
+        """Obtiene estadísticas del usuario"""
+        conn = sqlite3.connect('mentor_ia.db')
+    
+        df_exams = pd.read_sql_query('''
+            SELECT e.*, g.name as group_name
+            FROM exams e
+            LEFT JOIN groups g ON e.group_id = g.id
+            WHERE e.user_id = ? 
+            ORDER BY e.created_at DESC
+            LIMIT 200
+        ''', conn, params=(user_id,))
+    
+        conn.close()
+        return df_exams
+
+        def get_or_create_user(self, username="usuario_demo", plan="free"):
+            """Obtiene o crea usuario"""
+            conn = sqlite3.connect('mentor_ia.db')
+            cursor = conn.cursor()
+    
             cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
             user = cursor.fetchone()
     
-        conn.close()
-        return user
+            if not user:
+                cursor.execute('''
+                    INSERT INTO users (username, plan, exams_used) VALUES (?, ?, 0)
+                ''', (username, plan))
+                conn.commit()
+                cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
+                user = cursor.fetchone()
     
-    def create_group(self, user_id, name, subject, description=""):
-        """Crea un nuevo grupo"""
-        conn = sqlite3.connect('mentor_ia.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT INTO groups (user_id, name, subject, description)
-            VALUES (?, ?, ?, ?)
-        ''', (user_id, name, subject, description))
-        
-        conn.commit()
-        conn.close()
+            conn.close()
+            return user
     
-    def get_user_groups(self, user_id):
-        """Obtiene grupos del usuario"""
-        conn = sqlite3.connect('mentor_ia.db')
+        def create_group(self, user_id, name, subject, description=""):
+            """Crea un nuevo grupo"""
+            conn = sqlite3.connect('mentor_ia.db')
+            cursor = conn.cursor()
         
-        df_groups = pd.read_sql_query('''
-            SELECT * FROM groups WHERE user_id = ? ORDER BY created_at DESC
-        ''', conn, params=(user_id,))
+            cursor.execute('''
+                INSERT INTO groups (user_id, name, subject, description)
+                VALUES (?, ?, ?, ?)
+            ''', (user_id, name, subject, description))
         
-        conn.close()
-        return df_groups
+            conn.commit()
+            conn.close()
     
-    def update_user_plan(self, user_id, plan):
-        """Actualiza el plan del usuario"""
-        conn = sqlite3.connect('mentor_ia.db')
-        cursor = conn.cursor()
+        def get_user_groups(self, user_id):
+            """Obtiene grupos del usuario"""
+            conn = sqlite3.connect('mentor_ia.db')
         
-        cursor.execute('''
-            UPDATE users SET plan = ? WHERE id = ?
-        ''', (plan, user_id))
+            df_groups = pd.read_sql_query('''
+                SELECT * FROM groups WHERE user_id = ? ORDER BY created_at DESC
+            ''', conn, params=(user_id,))
         
-        conn.commit()
-        conn.close()
+            conn.close()
+            return df_groups
+    
+        def update_user_plan(self, user_id, plan):
+            """Actualiza el plan del usuario"""
+            conn = sqlite3.connect('mentor_ia.db')
+            cursor = conn.cursor()
+        
+            cursor.execute('''
+                UPDATE users SET plan = ? WHERE id = ?
+            ''', (plan, user_id))
+        
+            conn.commit()
+            conn.close()
 
 def show_ocr_configuration():
     """Muestra configuración de Microsoft OCR"""
