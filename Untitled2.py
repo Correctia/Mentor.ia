@@ -1142,50 +1142,46 @@ class ExamCorrector:
         return df_groups
 
     def update_user_plan(self, user_id, plan):
-        """Actualiza el plan del usuario"""
-        conn = sqlite3.connect('mentor_ia.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE users SET plan = ? WHERE id = ?
-        ''', (plan, user_id))
-        conn.commit()
-        conn.close()
-    """Muestra configuración de Microsoft OCR"""
-    st.subheader("🔧 Configuración Microsoft OCR")
+    """Actualiza el plan del usuario"""
+    conn = sqlite3.connect('mentor_ia.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE users SET plan = ? WHERE id = ?
+    ''', (plan, user_id))
+    conn.commit()
+    conn.close()
+
+    def show_ocr_configuration():
+        """Muestra configuración de Google Vision OCR"""
+        st.subheader("🔧 Configuración Google Vision OCR")
     
-    corrector = st.session_state.get('corrector')
-    if corrector and corrector.microsoft_ocr.is_configured():
-        st.success("✅ Microsoft OCR configurado correctamente")
-        
-        # Mostrar información de configuración
-        st.info(f"Endpoint: {corrector.microsoft_ocr.endpoint}")
-        st.info("API Key: " + "*" * 20 + corrector.microsoft_ocr.key[-4:])
+        corrector = st.session_state.get('corrector')
+        if corrector and hasattr(corrector, 'google_ocr') and corrector.google_ocr.is_configured():
+            st.success("✅ Google Vision OCR configurado correctamente")
+            st.info("API Key: " + "*" * 20 + corrector.google_ocr.api_key[-4:])
         
         # Test de OCR
-        st.subheader("🧪 Probar OCR")
-        test_image = st.file_uploader("Sube una imagen para probar OCR", type=['png', 'jpg', 'jpeg'])
+            st.subheader("🧪 Probar OCR")
+            test_image = st.file_uploader("Sube una imagen para probar OCR", type=['png', 'jpg', 'jpeg'])
         
-        if test_image and st.button("Probar OCR"):
-            with st.spinner("Procesando imagen..."):
-                image_data = test_image.read()
-                text = corrector.microsoft_ocr.extract_text_from_image(image_data)
-                
-                if text:
-                    st.success("✅ OCR funcionando correctamente")
-                    st.text_area("Texto extraído:", text, height=200)
-                else:
-                    st.error("❌ Error en OCR")
-    else:
-        st.error("❌ Microsoft OCR no configurado")
-        st.markdown("""
-        **Para configurar Microsoft OCR:**
-        1. Crear recurso Computer Vision en Azure
-        2. Obtener endpoint y API key
-        3. Actualizar variables en el código:
-           - `AZURE_VISION_ENDPOINT`
-           - `AZURE_VISION_KEY`
-        """)
-
+            if test_image and st.button("Probar OCR"):
+                with st.spinner("Procesando imagen..."):
+                    image_data = test_image.read()
+                    text, info = corrector.google_ocr.extract_text_from_image_debug(image_data)
+                    if text:
+                        st.success("✅ OCR funcionando correctamente")
+                        st.text_area("Texto extraído:", text, height=200)
+                    else:
+                        st.error(f"❌ Error en OCR: {info}")
+        else:
+            st.error("❌ Google Vision OCR no configurado")
+            st.markdown("""
+            **Para configurar Google Vision OCR:**
+            1. Ve a [Google Cloud Console](https://console.cloud.google.com/)
+            2. Habilita la API de Vision
+            3. Obtén tu API Key
+            4. Actualiza la variable `GOOGLE_VISION_API_KEY` en tus secrets o variables de entorno
+            """)
 def show_pricing():
     """Muestra página de precios"""
     st.title("💰 Planes y Precios")
@@ -1561,38 +1557,6 @@ def show_home():
                 if last_exam is not None:
                     st.metric("Último Examen", f"{last_exam['grade']:.1f}")
 
-def show_ocr_configuration():
-    """Muestra configuración de Google Vision OCR"""
-    st.subheader("🔧 Configuración Google Vision OCR")
-    
-    corrector = st.session_state.get('corrector')
-    if corrector and corrector.google_ocr and corrector.google_ocr.is_configured():
-        st.success("✅ Google Vision OCR configurado correctamente")
-        st.info(f"API Key: " + "*" * 20 + corrector.google_ocr.api_key[-4:])
-        
-        # Test de OCR
-        st.subheader("🧪 Probar OCR")
-        test_image = st.file_uploader("Sube una imagen para probar OCR", type=['png', 'jpg', 'jpeg'])
-        
-        if test_image and st.button("Probar OCR"):
-            with st.spinner("Procesando imagen..."):
-                image_data = test_image.read()
-                text, info = corrector.google_ocr.extract_text_from_image_debug(image_data)
-                if text:
-                    st.success("✅ OCR funcionando correctamente")
-                    st.text_area("Texto extraído:", text, height=200)
-                else:
-                    st.error(f"❌ Error en OCR: {info}")
-    else:
-        st.error("❌ Google Vision OCR no configurado")
-        st.markdown("""
-        **Para configurar Google Vision OCR:**
-        1. Ve a [Google Cloud Console](https://console.cloud.google.com/)
-        2. Habilita la API de Vision
-        3. Obtén tu API Key
-        4. Actualiza la variable `GOOGLE_VISION_API_KEY` en tus secrets o variables de entorno
-        """)
-        
 def show_corrector():
     """Página principal del corrector"""
     st.title("📝 Corrector Inteligente")
