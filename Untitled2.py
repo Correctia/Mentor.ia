@@ -77,7 +77,7 @@ PRICING_PLANS = {
         features=[
             "100 exámenes/mes",
             "Creación de grupos",
-            "OCR Microsoft avanzado",
+            "OCR Google avanzado",
             "Estadísticas avanzadas",
             "Soporte prioritario"
         ],
@@ -90,7 +90,7 @@ PRICING_PLANS = {
         features=[
             "500 exámenes/mes",
             "Grupos ilimitados",
-            "OCR Microsoft Premium",
+            "OCR Google Premium",
             "Análisis detallado",
             "Exportación Excel/PDF",
             "Soporte 24/7"
@@ -104,7 +104,7 @@ PRICING_PLANS = {
         features=[
             "2000 exámenes/mes",
             "Múltiples usuarios",
-            "OCR Microsoft Enterprise",
+            "OCR Google Enterprise",
             "Integración API",
             "Análisis institucional",
             "Soporte dedicado"
