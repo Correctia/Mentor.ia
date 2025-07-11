@@ -1458,29 +1458,29 @@ Evalúa este examen y responde con este formato JSON exacto:
         conn.close()
     
     def get_user_stats(self, user_id):
-        """Obtiene estadísticas del usuario"""
-        conn = sqlite3.connect('mentor_ia.db')
-        
-        df_exams = pd.read_sql_query('''
-            SELECT e.*, g.name as group_name
-            FROM exams e
-            LEFT JOIN groups g ON e.group_id = g.id
-            WHERE e.user_id = ? 
-            ORDER BY e.created_at DESC
-            LIMIT 200
-        ''', conn, params=(user_id,))
-        
-        conn.close()
-        return df_exams
+    """Obtiene estadísticas del usuario"""
+    conn = sqlite3.connect('mentor_ia.db')
     
+    df_exams = pd.read_sql_query('''
+        SELECT e.*, g.name as group_name
+        FROM exams e
+        LEFT JOIN groups g ON e.group_id = g.id
+        WHERE e.user_id = ? 
+        ORDER BY e.created_at DESC
+        LIMIT 200
+    ''', conn, params=(user_id,))
+    
+    conn.close()
+    return df_exams
+
     def get_or_create_user(self, username="usuario_demo", plan="free"):
         """Obtiene o crea usuario"""
         conn = sqlite3.connect('mentor_ia.db')
         cursor = conn.cursor()
-        
+    
         cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
         user = cursor.fetchone()
-        
+    
         if not user:
             cursor.execute('''
                 INSERT INTO users (username, plan, exams_used) VALUES (?, ?, 0)
@@ -1488,7 +1488,7 @@ Evalúa este examen y responde con este formato JSON exacto:
             conn.commit()
             cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
             user = cursor.fetchone()
-        
+    
         conn.close()
         return user
     
