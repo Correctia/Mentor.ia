@@ -707,15 +707,16 @@ def show_help():
     
     ## 🔧 Configuración OCR
     
-    ### Microsoft OCR (Recomendado)
-    - Mayor precisión en escritura manual
-    - Mejor reconocimiento de caracteres
-    - Procesamiento avanzado
+    ### Google Vision OCR (Recomendado)
+    - Precisión avanzada en escritura manual
+    - Reconocimiento de caracteres mejorado
+    - Procesamiento rápido y seguro
     
     ### Configuración:
-    1. Crear recurso Computer Vision en Azure
-    2. Obtener endpoint y API key
-    3. Actualizar variables en el código
+    1. Ve a [Google Cloud Console](https://console.cloud.google.com/)
+    2. Habilita la API de Vision
+    3. Obtén tu API Key
+    4. Actualiza la variable `GOOGLE_VISION_API_KEY` en tus secrets o variables de entorno
     
     ## 💡 Consejos para Mejores Resultados
     
