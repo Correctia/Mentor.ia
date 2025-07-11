@@ -900,76 +900,74 @@ def show_corrector():
     col1, col2 = st.columns(2)
     
     with col1:
-        # Seleccionar asignatura
         subject = st.selectbox(
             "Asignatura",
             list(SUBJECT_COLORS.keys()),
             help="Selecciona la asignatura del examen"
         )
-        
-        # Seleccionar grupo (si disponible)
         group_id = None
         if user_plan.can_create_groups:
             df_groups = corrector.get_user_groups(user[0])
             if not df_groups.empty:
                 group_options = ["Sin grupo"] + df_groups['name'].tolist()
                 group_selection = st.selectbox("Grupo", group_options)
-                
                 if group_selection != "Sin grupo":
                     group_id = df_groups[df_groups['name'] == group_selection]['id'].iloc[0]
-    
     with col2:
-        # Modo de evaluación
         evaluation_mode = st.radio(
             "Modo de Evaluación",
             ["Automático", "Personalizado"],
             help="Automático: criterios generados por IA | Personalizado: define tus propios criterios"
         )
-    
-    # Criterios personalizados
     if evaluation_mode == "Personalizado":
         st.subheader("📋 Criterios de Evaluación")
-        
         col1, col2 = st.columns(2)
-        
         with col1:
             criteria = st.text_area(
                 "Criterios de Evaluación",
                 placeholder="Ej: Comprensión conceptual, aplicación de fórmulas, claridad en la explicación...",
                 height=100
             )
-        
         with col2:
             rubric = st.text_area(
                 "Rúbrica de Calificación",
                 placeholder="Ej: Excelente (90-100), Bueno (70-89), Regular (50-69), Deficiente (0-49)",
                 height=100
             )
-    
-    # Subir archivo
     st.subheader("📤 Subir Examen")
-    
     uploaded_file = st.file_uploader(
         "Selecciona el archivo del examen",
         type=['png', 'jpg', 'jpeg', 'pdf', 'txt'],
         help="Formatos soportados: PNG, JPG, JPEG, PDF, TXT"
     )
-    
     if uploaded_file is not None:
         st.success(f"Archivo cargado: {uploaded_file.name}")
         
+        # Lee el archivo SOLO UNA VEZ
+        file_bytes = uploaded_file.read()
+        
         # Mostrar preview si es imagen
         if uploaded_file.type.startswith('image/'):
-            image = Image.open(uploaded_file)
-            st.image(image, caption="Vista previa", use_column_width=True)
+            st.image(Image.open(BytesIO(file_bytes)), caption="Vista previa", use_column_width=True)
         
         # Botón para procesar
         if st.button("🚀 Procesar Examen", type="primary"):
             with st.spinner("Procesando examen..."):
-                
-                # Extraer texto
-                st.info("Extrayendo texto del archivo...")
-                text, ocr_method, text_quality = corrector.extract_text_from_file(uploaded_file)
+                # Extraer texto usando los bytes leídos
+                text, ocr_method, text_quality = None, None, None
+                if uploaded_file.type.startswith('image/'):
+                    if corrector.google_ocr and corrector.google_ocr.is_configured():
+                        text, info = corrector.google_ocr.extract_text_from_image_debug(file_bytes)
+                        ocr_method = "google_ocr"
+                        text_quality = info.get('avg_confidence', 0.5) if info else 0.0
+                    else:
+                        st.error("OCR no configurado")
+                        return
+                elif uploaded_file.type == "application/pdf":
+                    # Si es PDF, puedes adaptar tu lógica aquí usando file_bytes
+                    text, ocr_method, text_quality = corrector.extract_text_from_file(BytesIO(file_bytes))
+                else:
+                    text, ocr_method, text_quality = corrector.extract_text_from_file(BytesIO(file_bytes))
                 
                 if text is None:
                     st.error("No se pudo extraer texto del archivo")
