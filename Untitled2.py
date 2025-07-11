@@ -1,29 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[7]:
-
-
-get_ipython().system('pip install openai streamlit pandas numpy pillow plotly openpyxl')
-
-
-# In[1]:
-
-
-# Con comandos mágicos (más directo)
-get_ipython().system('brew install tesseract')
-get_ipython().system('pip install pytesseract')
-
-
-# In[5]:
-
-
-get_ipython().system('pip install PyMuPDF')
-
-
-# In[ ]:
-
-
 #!/usr/bin/env python
 # coding: utf-8
 
