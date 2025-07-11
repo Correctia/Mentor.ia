@@ -1053,8 +1053,17 @@ def show_corrector():
 def show_exam_results(result):
     """Muestra los resultados de la corrección"""
     st.subheader("📊 Resultados de la Corrección")
-    
-    # Nota principal
+
+    # Validación para evitar errores
+    if not isinstance(result, dict):
+        st.error("Error interno: el resultado no es un diccionario.")
+        st.write(result)
+        return
+    if 'nota_final' not in result:
+        st.error("No se encontró la clave 'nota_final' en el resultado.")
+        st.write(result)
+        return
+
     nota_final = result['nota_final']
     
     col1, col2, col3 = st.columns(3)
