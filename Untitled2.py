@@ -799,8 +799,8 @@ class ExamCorrector:
                             text += ocr_text + "\n"
                             ocr_method = "google_ocr"
                             text_quality = 0.7
-                            else:
-                                text += "[Página sin texto reconocido]\n"
+                        else:
+                            text += "[Página sin texto reconocido]\n"
                             text_quality = 0.3
                 
                 pdf_document.close()
