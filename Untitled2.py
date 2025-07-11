@@ -161,39 +161,41 @@ class ImprovedGoogleOCR:
         return self.is_available and self.api_key and len(self.api_key) > 30
         
     def validate_image_quality(self, image_data):
-        """Valida calidad de imagen antes de OCR"""
-        try:
-            # Convertir a numpy array
-            nparr = np.frombuffer(image_data, np.uint8)
-            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            
-            if img is None:
-                return False, "No se pudo cargar la imagen"
-            
-            height, width = img.shape[:2]
-            
-            # Verificar resolución mínima
-            if width < 800 or height < 600:
-                return False, f"Resolución muy baja: {width}x{height}. Mínimo recomendado: 800x600"
-            
-            # Verificar tamaño de archivo (Google Vision API límite: 20MB)
-            if len(image_data) > 20 * 1024 * 1024:  # 20MB
-                return False, "Archivo muy grande (>20MB)"
-            
-            if len(image_data) < 50 * 1024:  # 50KB
-                return False, "Archivo muy pequeño (<50KB). Posible imagen muy comprimida"
-            
-            # Verificar calidad general (detección de borrosidad)
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            blur_score = cv2.Laplacian(gray, cv2.CV_64F).var()
-            
-            if blur_score < 100:
-                return False, f"Imagen muy borrosa (score: {blur_score:.1f}). Mínimo: 100"
-            
-            return True, f"Imagen válida: {width}x{height}, blur_score: {blur_score:.1f}"
-            
-        except Exception as e:
-            return False, f"Error validando imagen: {str(e)}"
+    """Valida calidad de imagen antes de OCR - VERSION MEJORADA"""
+    try:
+        # Convertir a numpy array
+        nparr = np.frombuffer(image_data, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            return False, "No se pudo cargar la imagen"
+        
+        height, width = img.shape[:2]
+        
+        # Verificar resolución mínima (MÁS FLEXIBLE)
+        if width < 400 or height < 300:
+            return False, f"Resolución muy baja: {width}x{height}. Mínimo recomendado: 400x300"
+        
+        # Verificar tamaño de archivo (Google Vision API límite: 20MB)
+        if len(image_data) > 20 * 1024 * 1024:  # 20MB
+            return False, "Archivo muy grande (>20MB)"
+        
+        # Reducir límite mínimo (MÁS FLEXIBLE)
+        if len(image_data) < 10 * 1024:  # 10KB
+            return False, "Archivo muy pequeño (<10KB). Posible imagen corrupta"
+        
+        # Verificar calidad general (MÁS FLEXIBLE)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        blur_score = cv2.Laplacian(gray, cv2.CV_64F).var()
+        
+        # Reducir threshold de blur (MÁS FLEXIBLE)
+        if blur_score < 30:
+            print(f"⚠️ Imagen posiblemente borrosa (score: {blur_score:.1f}), pero procesando...")
+        
+        return True, f"Imagen válida: {width}x{height}, blur_score: {blur_score:.1f}"
+        
+    except Exception as e:
+        return False, f"Error validando imagen: {str(e)}"
     
     def enhance_image_for_ocr(self, image_data):
         """Mejora imagen específicamente para OCR de escritura manual"""
@@ -338,26 +340,37 @@ class ImprovedGoogleOCR:
         result, info = self.extract_text_with_validation(image_data)
         return result
     
-    def extract_text_with_validation(self, image_data):
-        """Extracción de texto con validación completa usando Google Cloud Vision"""
+    def extract_text_with_validation_debug(self, image_data):
+        """Versión con debug para identificar problemas"""
         if not self.is_configured():
             return None, "Google Vision API no configurada"
-        
+    
         try:
-            # 1. Validar calidad de imagen
+            print("🔍 Iniciando extracción de texto...")
+        
+        # 1. Validar calidad de imagen
             is_valid, message = self.validate_image_quality(image_data)
+            print(f"📊 Validación: {message}")
+        
             if not is_valid:
-                return None, f"Imagen no válida: {message}"
-            
-            print(f"✅ Validación: {message}")
-            
-            # 2. Mejorar imagen para OCR
+                print(f"❌ Imagen rechazada: {message}")
+            # INTENTAR PROCESAR ANYWAY SI ES SOLO BLUR
+                if "borrosa" not in message.lower():
+                    return None, f"Imagen no válida: {message}"
+                else:
+                    print("⚠️ Procesando imagen borrosa...")
+        
+            print("✅ Validación pasada, mejorando imagen...")
+        
+        # 2. Mejorar imagen para OCR
             enhanced_image = self.enhance_image_for_ocr(image_data)
-            
-            # 3. Codificar imagen en base64 para Google Vision API
+            print("✅ Imagen mejorada")
+        
+        # 3. Codificar imagen en base64
             image_base64 = base64.b64encode(enhanced_image).decode('utf-8')
-            
-            # 4. Configurar request para Google Vision API
+            print(f"✅ Imagen codificada (tamaño: {len(image_base64)} chars)")
+        
+        # 4. Configurar request para Google Vision API
             request_payload = {
                 "requests": [
                     {
@@ -371,45 +384,64 @@ class ImprovedGoogleOCR:
                             }
                         ],
                         "imageContext": {
-                            "languageHints": ["es"]  # Español
+                        "languageHints": ["es", "en"]  # Español e inglés
                         }
                     }
                 ]
             }
-            
-            # 5. Enviar request a Google Vision API
+        
+            print("📡 Enviando request a Google Vision API...")
+        
+        # 5. Enviar request a Google Vision API
             headers = {
                 'Content-Type': 'application/json'
             }
-            
+        
             response = requests.post(
                 self.vision_url,
                 headers=headers,
                 json=request_payload,
                 timeout=60
             )
-            
+        
+            print(f"📥 Respuesta recibida: {response.status_code}")
+        
             if response.status_code != 200:
+                print(f"❌ Error API: {response.text}")
                 return None, f"Error Google Vision API: {response.status_code} - {response.text}"
-            
-            # 6. Procesar respuesta
+        
+        # 6. Procesar respuesta
             result = response.json()
-            
+        
             if 'responses' in result and len(result['responses']) > 0:
                 vision_response = result['responses'][0]
-                
-                # Verificar errores
+            
+            # Verificar errores
                 if 'error' in vision_response:
                     error_msg = vision_response['error'].get('message', 'Error desconocido')
+                    print(f"❌ Error en Google Vision: {error_msg}")
                     return None, f"Error en Google Vision: {error_msg}"
-                
-                # Extraer texto con información de confianza
+            
+            # Verificar si hay texto
+                if 'textAnnotations' not in vision_response or not vision_response['textAnnotations']:
+                    print("⚠️ No se detectó texto en la imagen")
+                    return None, "No se detectó texto en la imagen. Verifica que:\n- El texto sea legible\n- Haya suficiente contraste\n- La imagen no esté muy borrosa"
+            
+                print(f"✅ Texto detectado: {len(vision_response['textAnnotations'])} elementos")
+            
+            # Extraer texto con información de confianza
                 text, confidence_info = self.extract_text_with_confidence(vision_response)
+                print(f"✅ Texto extraído: {len(text)} caracteres")
+            
                 return text, confidence_info
             else:
+                print("❌ No se recibió respuesta válida")
                 return None, "No se recibió respuesta válida de Google Vision"
-            
+        
         except Exception as e:
+            print(f"❌ Error general: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return None, f"Error en OCR: {str(e)}"
     
     def extract_text_with_confidence(self, vision_response):
