@@ -1177,11 +1177,7 @@ class ExamCorrector:
             st.error("❌ Google Vision OCR no configurado")
             st.markdown("""
             **Para configurar Google Vision OCR:**
-            1. Ve a [Google Cloud Console](https://console.cloud.google.com/)
-            2. Habilita la API de Vision
-            3. Obtén tu API Key
-            4. Actualiza la variable `GOOGLE_VISION_API_KEY` en tus secrets o variables de entorno
-            """)
+           
 def show_pricing():
     """Muestra página de precios"""
     st.title("💰 Planes y Precios")
