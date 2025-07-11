@@ -333,293 +333,293 @@ class ImprovedGoogleOCR:
             return gray
     
     def extract_text_from_image_debug(self, image_data):
-    """Versión con diagnóstico completo para identificar problemas"""
-    print("🔍 Iniciando diagnóstico completo de OCR...")
+        """Versión con diagnóstico completo para identificar problemas"""
+        print("🔍 Iniciando diagnóstico completo de OCR...")
     
     # 1. Verificar configuración
-    if not self.is_configured():
-        print("❌ Google Vision API no configurada")
-        return None, "Google Vision API no configurada"
+        if not self.is_configured():
+            print("❌ Google Vision API no configurada")
+            return None, "Google Vision API no configurada"
     
-    try:
+        try:
         # 2. Verificar datos de imagen
-        if not image_data:
-            print("❌ No se recibieron datos de imagen")
-            return None, "No se recibieron datos de imagen"
+            if not image_data:
+                print("❌ No se recibieron datos de imagen")
+                return None, "No se recibieron datos de imagen"
         
-        print(f"📊 Datos recibidos: {len(image_data)} bytes")
+            print(f"📊 Datos recibidos: {len(image_data)} bytes")
         
         # 3. Verificar si es una imagen válida
-        try:
-            from PIL import Image
-            import io
+            try:
+                from PIL import Image
+                import io
             
             # Intentar abrir la imagen
-            image = Image.open(io.BytesIO(image_data))
-            print(f"✅ Imagen válida: {image.format}, {image.size}, {image.mode}")
+                image = Image.open(io.BytesIO(image_data))
+                print(f"✅ Imagen válida: {image.format}, {image.size}, {image.mode}")
             
             # Verificar tamaño mínimo
-            if image.size[0] < 50 or image.size[1] < 50:
-                print(f"❌ Imagen demasiado pequeña: {image.size}")
-                return None, f"Imagen demasiado pequeña: {image.size}"
+                if image.size[0] < 50 or image.size[1] < 50:
+                    print(f"❌ Imagen demasiado pequeña: {image.size}")
+                    return None, f"Imagen demasiado pequeña: {image.size}"
             
             # Verificar tamaño máximo (Google Vision tiene límites)
-            max_size = 4000
-            if image.size[0] > max_size or image.size[1] > max_size:
-                print(f"⚠️ Imagen grande: {image.size}, redimensionando...")
-                image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+                max_size = 4000
+                if image.size[0] > max_size or image.size[1] > max_size:
+                    print(f"⚠️ Imagen grande: {image.size}, redimensionando...")
+                    image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
                 
                 # Convertir de vuelta a bytes
-                output = io.BytesIO()
-                image.save(output, format='PNG')
-                image_data = output.getvalue()
-                print(f"✅ Imagen redimensionada a: {image.size}")
+                    output = io.BytesIO()
+                    image.save(output, format='PNG')
+                    image_data = output.getvalue()
+                    print(f"✅ Imagen redimensionada a: {image.size}")
             
-        except Exception as e:
-            print(f"❌ Error al procesar imagen: {str(e)}")
-            return None, f"Error al procesar imagen: {str(e)}"
+            except Exception as e:
+                print(f"❌ Error al procesar imagen: {str(e)}")
+                return None, f"Error al procesar imagen: {str(e)}"
         
         # 4. Validar calidad de imagen (si existe el método)
-        if hasattr(self, 'validate_image_quality'):
-            is_valid, message = self.validate_image_quality(image_data)
-            print(f"📊 Validación calidad: {message}")
+            if hasattr(self, 'validate_image_quality'):
+                is_valid, message = self.validate_image_quality(image_data)
+                print(f"📊 Validación calidad: {message}")
             
-            if not is_valid and "borrosa" not in message.lower():
-                print(f"❌ Imagen rechazada: {message}")
-                return None, f"Imagen no válida: {message}"
+                if not is_valid and "borrosa" not in message.lower():
+                    print(f"❌ Imagen rechazada: {message}")
+                    return None, f"Imagen no válida: {message}"
         
         # 5. Mejorar imagen para OCR (si existe el método)
-        enhanced_image = image_data
-        if hasattr(self, 'enhance_image_for_ocr'):
-            try:
-                enhanced_image = self.enhance_image_for_ocr(image_data)
-                print("✅ Imagen mejorada para OCR")
-            except Exception as e:
-                print(f"⚠️ Error mejorando imagen, usando original: {str(e)}")
-                enhanced_image = image_data
+            enhanced_image = image_data
+            if hasattr(self, 'enhance_image_for_ocr'):
+                try:
+                    enhanced_image = self.enhance_image_for_ocr(image_data)
+                    print("✅ Imagen mejorada para OCR")
+                except Exception as e:
+                    print(f"⚠️ Error mejorando imagen, usando original: {str(e)}")
+                    enhanced_image = image_data
         
         # 6. Codificar imagen en base64
-        import base64
-        image_base64 = base64.b64encode(enhanced_image).decode('utf-8')
-        print(f"✅ Imagen codificada (tamaño: {len(image_base64)} chars)")
+            import base64
+            image_base64 = base64.b64encode(enhanced_image).decode('utf-8')
+            print(f"✅ Imagen codificada (tamaño: {len(image_base64)} chars)")
         
         # 7. Verificar URL de la API
-        if not hasattr(self, 'vision_url') or not self.vision_url:
-            print("❌ URL de Google Vision API no configurada")
-            return None, "URL de Google Vision API no configurada"
+            if not hasattr(self, 'vision_url') or not self.vision_url:
+                print("❌ URL de Google Vision API no configurada")
+                return None, "URL de Google Vision API no configurada"
         
-        print(f"📡 URL API: {self.vision_url}")
+            print(f"📡 URL API: {self.vision_url}")
         
         # 8. Configurar request para Google Vision API
-        request_payload = {
-            "requests": [
-                {
-                    "image": {
-                        "content": image_base64
-                    },
-                    "features": [
-                        {
-                            "type": "DOCUMENT_TEXT_DETECTION",
-                            "maxResults": 1
+            request_payload = {
+                "requests": [
+                    {
+                        "image": {
+                            "content": image_base64
+                        },
+                        "features": [
+                            {
+                                "type": "DOCUMENT_TEXT_DETECTION",
+                                "maxResults": 1
+                            }
+                        ],
+                        "imageContext": {
+                            "languageHints": ["es", "en"]
                         }
-                    ],
-                    "imageContext": {
-                        "languageHints": ["es", "en"]
                     }
-                }
-            ]
-        }
+                ]
+            }
         
-        print("📡 Enviando request a Google Vision API...")
+            print("📡 Enviando request a Google Vision API...")
         
         # 9. Enviar request con mejor manejo de errores
-        import requests
-        headers = {
-            'Content-Type': 'application/json'
-        }
+            import requests
+            headers = {
+                'Content-Type': 'application/json'
+            }
         
-        try:
-            response = requests.post(
-                self.vision_url,
-                headers=headers,
-                json=request_payload,
-                timeout=60
-            )
+            try:
+                response = requests.post(
+                    self.vision_url,
+                    headers=headers,
+                    json=request_payload,
+                    timeout=60
+                )
             
-            print(f"📥 Respuesta recibida: {response.status_code}")
+                print(f"📥 Respuesta recibida: {response.status_code}")
             
-            if response.status_code != 200:
-                print(f"❌ Error HTTP: {response.status_code}")
-                print(f"❌ Respuesta: {response.text}")
-                return None, f"Error Google Vision API: {response.status_code} - {response.text}"
+                if response.status_code != 200:
+                    print(f"❌ Error HTTP: {response.status_code}")
+                    print(f"❌ Respuesta: {response.text}")
+                    return None, f"Error Google Vision API: {response.status_code} - {response.text}"
             
-        except requests.exceptions.Timeout:
-            print("❌ Timeout en la conexión")
-            return None, "Timeout en la conexión a Google Vision API"
-        except requests.exceptions.ConnectionError:
-            print("❌ Error de conexión")
-            return None, "Error de conexión a Google Vision API"
-        except Exception as e:
-            print(f"❌ Error en request: {str(e)}")
-            return None, f"Error en request: {str(e)}"
+            except requests.exceptions.Timeout:
+                print("❌ Timeout en la conexión")
+                return None, "Timeout en la conexión a Google Vision API"
+            except requests.exceptions.ConnectionError:
+                print("❌ Error de conexión")
+                return None, "Error de conexión a Google Vision API"
+            except Exception as e:
+                print(f"❌ Error en request: {str(e)}")
+                return None, f"Error en request: {str(e)}"
         
         # 10. Procesar respuesta con mejor validación
-        try:
-            result = response.json()
-            print(f"✅ JSON parseado correctamente")
+            try:
+                result = response.json()
+                print(f"✅ JSON parseado correctamente")
             
-        except Exception as e:
-            print(f"❌ Error parseando JSON: {str(e)}")
-            print(f"❌ Respuesta raw: {response.text[:500]}...")
-            return None, f"Error parseando respuesta JSON: {str(e)}"
+            except Exception as e:
+                print(f"❌ Error parseando JSON: {str(e)}")
+                print(f"❌ Respuesta raw: {response.text[:500]}...")
+                return None, f"Error parseando respuesta JSON: {str(e)}"
         
         # 11. Validar estructura de respuesta
-        if 'responses' not in result:
-            print("❌ Respuesta no tiene campo 'responses'")
-            print(f"❌ Estructura: {list(result.keys())}")
-            return None, "Respuesta de Google Vision API inválida"
+            if 'responses' not in result:
+                print("❌ Respuesta no tiene campo 'responses'")
+                print(f"❌ Estructura: {list(result.keys())}")
+                return None, "Respuesta de Google Vision API inválida"
         
-        if len(result['responses']) == 0:
-            print("❌ Lista de respuestas vacía")
-            return None, "No se recibió respuesta de Google Vision API"
+            if len(result['responses']) == 0:
+                print("❌ Lista de respuestas vacía")
+                return None, "No se recibió respuesta de Google Vision API"
         
-        vision_response = result['responses'][0]
+            vision_response = result['responses'][0]
         
         # 12. Verificar errores en la respuesta
-        if 'error' in vision_response:
-            error_msg = vision_response['error'].get('message', 'Error desconocido')
-            error_code = vision_response['error'].get('code', 'Sin código')
-            print(f"❌ Error en Google Vision: {error_code} - {error_msg}")
-            return None, f"Error en Google Vision: {error_code} - {error_msg}"
+            if 'error' in vision_response:
+                error_msg = vision_response['error'].get('message', 'Error desconocido')
+                error_code = vision_response['error'].get('code', 'Sin código')
+                print(f"❌ Error en Google Vision: {error_code} - {error_msg}")
+                return None, f"Error en Google Vision: {error_code} - {error_msg}"
         
         # 13. Verificar detección de texto
-        if 'textAnnotations' not in vision_response:
-            print("❌ No hay campo 'textAnnotations' en la respuesta")
-            print(f"❌ Campos disponibles: {list(vision_response.keys())}")
-            return None, "Google Vision no devolvió anotaciones de texto"
+            if 'textAnnotations' not in vision_response:
+                print("❌ No hay campo 'textAnnotations' en la respuesta")
+                print(f"❌ Campos disponibles: {list(vision_response.keys())}")
+                return None, "Google Vision no devolvió anotaciones de texto"
         
-        if not vision_response['textAnnotations']:
-            print("❌ Lista de textAnnotations vacía")
+            if not vision_response['textAnnotations']:
+                print("❌ Lista de textAnnotations vacía")
             # Intentar con fullTextAnnotation
-            if 'fullTextAnnotation' in vision_response:
-                full_text = vision_response['fullTextAnnotation'].get('text', '')
-                if full_text.strip():
-                    print(f"✅ Texto encontrado en fullTextAnnotation: {len(full_text)} caracteres")
-                    return full_text, {
-                        'avg_confidence': 0.8,
-                        'quality_ratio': 0.8,
-                        'total_lines': len(full_text.split('\n')),
-                        'low_confidence_lines': 0,
-                        'message': "Texto extraído de fullTextAnnotation"
-                    }
+                if 'fullTextAnnotation' in vision_response:
+                    full_text = vision_response['fullTextAnnotation'].get('text', '')
+                    if full_text.strip():
+                        print(f"✅ Texto encontrado en fullTextAnnotation: {len(full_text)} caracteres")
+                        return full_text, {
+                            'avg_confidence': 0.8,
+                            'quality_ratio': 0.8,
+                            'total_lines': len(full_text.split('\n')),
+                            'low_confidence_lines': 0,
+                            'message': "Texto extraído de fullTextAnnotation"
+                        }
             
-            return None, "No se detectó texto en la imagen. Verifica que:\n- El texto sea legible\n- Haya suficiente contraste\n- La imagen no esté muy borrosa"
+                return None, "No se detectó texto en la imagen. Verifica que:\n- El texto sea legible\n- Haya suficiente contraste\n- La imagen no esté muy borrosa"
         
-        print(f"✅ Texto detectado: {len(vision_response['textAnnotations'])} elementos")
+            print(f"✅ Texto detectado: {len(vision_response['textAnnotations'])} elementos")
         
         # 14. Extraer texto
-        text_annotations = vision_response['textAnnotations']
-        full_text = text_annotations[0].get('description', '')
+            text_annotations = vision_response['textAnnotations']
+            full_text = text_annotations[0].get('description', '')
         
-        if not full_text.strip():
-            print("❌ Texto extraído está vacío")
-            return None, "El texto extraído está vacío"
+            if not full_text.strip():
+                print("❌ Texto extraído está vacío")
+                return None, "El texto extraído está vacío"
         
-        print(f"✅ Texto extraído: {len(full_text)} caracteres")
-        print(f"📄 Primeros 200 caracteres: {full_text[:200]}...")
+            print(f"✅ Texto extraído: {len(full_text)} caracteres")
+            print(f"📄 Primeros 200 caracteres: {full_text[:200]}...")
         
         # 15. Información de confianza
-        confidence_info = {
-            'avg_confidence': 0.8,
-            'quality_ratio': 0.8,
-            'total_lines': len(full_text.split('\n')),
-            'low_confidence_lines': 0,
-            'message': f"Texto extraído exitosamente: {len(full_text)} caracteres"
-        }
+            confidence_info = {
+                'avg_confidence': 0.8,
+                'quality_ratio': 0.8,
+                'total_lines': len(full_text.split('\n')),
+                'low_confidence_lines': 0,
+                'message': f"Texto extraído exitosamente: {len(full_text)} caracteres"
+            }
         
-        return full_text, confidence_info
+            return full_text, confidence_info
         
-    except Exception as e:
-        print(f"❌ Error general: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return None, f"Error en OCR: {str(e)}"
+        except Exception as e:
+            print(f"❌ Error general: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return None, f"Error en OCR: {str(e)}"
 
 
-def quick_test_ocr(self, image_path):
-    """Función de prueba rápida para el OCR"""
-    print(f"🧪 Probando OCR con: {image_path}")
+    def quick_test_ocr(self, image_path):
+        """Función de prueba rápida para el OCR"""
+        print(f"🧪 Probando OCR con: {image_path}")
     
-    try:
-        with open(image_path, 'rb') as f:
-            image_data = f.read()
+        try:
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
         
-        result, info = self.extract_text_from_image_debug(image_data)
+            result, info = self.extract_text_from_image_debug(image_data)
         
-        if result:
-            print(f"✅ OCR exitoso!")
-            print(f"📄 Texto: {result[:200]}...")
-            print(f"📊 Info: {info}")
-        else:
-            print(f"❌ OCR falló: {info}")
+            if result:
+                print(f"✅ OCR exitoso!")
+                print(f"📄 Texto: {result[:200]}...")
+                print(f"📊 Info: {info}")
+            else:
+                print(f"❌ OCR falló: {info}")
             
-    except Exception as e:
-        print(f"❌ Error en test: {str(e)}")
+        except Exception as e:
+            print(f"❌ Error en test: {str(e)}")
 
 
 # Función para verificar configuración
-def check_configuration(self):
-    """Verifica que todo esté configurado correctamente"""
-    print("🔍 Verificando configuración...")
+    def check_configuration(self):
+        """Verifica que todo esté configurado correctamente"""
+        print("🔍 Verificando configuración...")
     
     # Verificar API Key
-    if not hasattr(self, 'api_key') or not self.api_key:
-        print("❌ API Key no configurada")
-        return False
+        if not hasattr(self, 'api_key') or not self.api_key:
+            print("❌ API Key no configurada")
+            return False
     
     # Verificar URL
-    if not hasattr(self, 'vision_url') or not self.vision_url:
-        print("❌ URL de Vision API no configurada")
-        return False
+        if not hasattr(self, 'vision_url') or not self.vision_url:
+            print("❌ URL de Vision API no configurada")
+            return False
     
     # Verificar que la URL contenga la API key
-    if 'key=' not in self.vision_url:
-        print("❌ URL no contiene API key")
-        return False
+        if 'key=' not in self.vision_url:
+            print("❌ URL no contiene API key")
+            return False
     
-    print("✅ Configuración OK")
-    return True
-def show_capture_guidelines():
-    """Muestra guías para mejor captura de imágenes"""
-    guidelines = {
-        "📸 Captura de Imagen": [
-            "Usa la cámara nativa del teléfono (no WhatsApp)",
-            "Configura la cámara en máxima resolución",
-            "Usa modo 'Documento' si está disponible"
-        ],
-        "💡 Iluminación": [
-            "Luz natural difusa (cerca de ventana)",
-            "Evita sombras y reflejos",
-            "Usa lámpara LED blanca si es necesario"
-        ],
-        "📐 Posicionamiento": [
-            "Coloca el examen en superficie plana",
-            "Foto perpendicular al papel (90°)",
-            "El texto debe ocupar al menos 60% de la imagen"
-        ],
-        "🔍 Calidad": [
-            "Texto nítido y enfocado",
-            "Contraste alto (papel blanco, tinta oscura)",
-            "Evita fotos movidas o borrosas"
-        ],
-        "📱 Transferencia": [
-            "Evita WhatsApp (comprime imágenes)",
-            "Usa cable USB, email o Google Drive",
-            "Si usas WhatsApp, envía como 'Documento'"
-        ]
-    }
+        print("✅ Configuración OK")
+        return True
+    def show_capture_guidelines():
+        """Muestra guías para mejor captura de imágenes"""
+        guidelines = {
+            "📸 Captura de Imagen": [
+                "Usa la cámara nativa del teléfono (no WhatsApp)",
+                "Configura la cámara en máxima resolución",
+                "Usa modo 'Documento' si está disponible"
+            ],
+            "💡 Iluminación": [
+                "Luz natural difusa (cerca de ventana)",
+                "Evita sombras y reflejos",
+                "Usa lámpara LED blanca si es necesario"
+            ],
+            "📐 Posicionamiento": [
+                "Coloca el examen en superficie plana",
+                "Foto perpendicular al papel (90°)",
+                "El texto debe ocupar al menos 60% de la imagen"
+            ],
+            "🔍 Calidad": [
+                "Texto nítido y enfocado",
+                "Contraste alto (papel blanco, tinta oscura)",
+                "Evita fotos movidas o borrosas"
+            ],
+            "📱 Transferencia": [
+                "Evita WhatsApp (comprime imágenes)",
+                "Usa cable USB, email o Google Drive",
+                "Si usas WhatsApp, envía como 'Documento'"
+            ]
+        }
     
-    return guidelines
+        return guidelines
 
 class DatabaseManager:
     def __init__(self):
