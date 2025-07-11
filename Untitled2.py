@@ -691,6 +691,8 @@ class DatabaseManager:
         conn.commit()
         conn.close()
 
+# ...reemplaza la clase ExamCorrector por esta versión...
+
 class ExamCorrector:
     def __init__(self):
         """Corrector con DeepSeek API y Google OCR mejorado - con manejo de errores"""
@@ -734,7 +736,7 @@ class ExamCorrector:
         except Exception as e:
             self.initialization_errors.append(f"Error Google OCR: {str(e)}")
             st.error(f"Error al inicializar Google OCR: {str(e)}")
-    
+
     def test_deepseek_connection(self):
         """Verificar conexión con DeepSeek API"""
         try:
@@ -748,13 +750,13 @@ class ExamCorrector:
             self.initialization_errors.append(f"Error conectando con DeepSeek: {str(e)}")
             st.error(f"Error conectando con DeepSeek API: {str(e)}")
             return False
-    
+
     def is_ready(self):
         """Verifica si el corrector está listo para funcionar"""
         return (self.client is not None and 
                 self.db is not None and 
                 len(self.initialization_errors) == 0)
-    
+
     def get_initialization_status(self):
         """Retorna el estado de inicialización"""
         status = {
@@ -764,7 +766,7 @@ class ExamCorrector:
             'errors': self.initialization_errors
         }
         return status
-    
+
     def extract_text_from_file(self, uploaded_file):
         """Extrae texto de archivos con validación mejorada"""
         try:
@@ -837,7 +839,7 @@ class ExamCorrector:
         except Exception as e:
             st.error(f"Error extrayendo texto: {str(e)}")
             return None, "error", 0.0
-    
+
     def correct_exam(self, text, subject, rubric=None, total_points=10):
         """Corrige examen usando DeepSeek API con rúbrica personalizada"""
         if not self.client:
@@ -933,7 +935,7 @@ class ExamCorrector:
             
         except Exception as e:
             return None, f"Error en corrección: {str(e)}"
-    
+
     def save_exam_result(self, user_id, group_id, filename, subject, correction_data, ocr_method, text_quality):
         """Guarda resultado del examen en la base de datos"""
         if not self.db:
@@ -966,475 +968,188 @@ class ExamCorrector:
             st.error(f"Error guardando resultado: {str(e)}")
             return False
 
-def main():
-    """Función principal de la aplicación"""
-    st.title("🎓 Mentor.ia - Corrector Inteligente")
-    st.markdown("### Corrección automática de exámenes con IA")
-    
-    # Inicializar corrector
-    if 'corrector' not in st.session_state:
-        with st.spinner("Inicializando sistema..."):
-            st.session_state.corrector = ExamCorrector()
-    
-    corrector = st.session_state.corrector
-    
-    # Mostrar estado de inicialización
-    status = corrector.get_initialization_status()
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if status['deepseek_api']:
-            st.success("✅ DeepSeek API")
-        else:
-            st.error("❌ DeepSeek API")
-    
-    with col2:
-        if status['google_ocr']:
-            st.success("✅ Google OCR")
-        else:
-            st.warning("⚠️ Google OCR")
-    
-    with col3:
-        if status['database']:
-            st.success("✅ Base de datos")
-        else:
-            st.error("❌ Base de datos")
-    
-    # Mostrar errores si los hay
-    if status['errors']:
-        with st.expander("⚠️ Errores de inicialización"):
-            for error in status['errors']:
-                st.error(error)
-    
-    # Sidebar para configuración
-    with st.sidebar:
-        st.header("⚙️ Configuración")
-        
-        # Selección de materia
-        subject = st.selectbox(
-            "Materia",
-            list(SUBJECT_COLORS.keys()),
-            index=0
-        )
-        
-        # Puntuación total
-        total_points = st.number_input(
-            "Puntuación total",
-            min_value=1,
-            max_value=100,
-            value=10
-        )
-        
-        # Rúbrica personalizada
-        custom_rubric = st.text_area(
-            "Rúbrica personalizada (opcional)",
-            placeholder="Describe los criterios específicos de evaluación..."
-        )
-        
-        # Guías de captura
-        with st.expander("📸 Guías de captura"):
-            guidelines = show_capture_guidelines()
-            for category, tips in guidelines.items():
-                st.write(f"**{category}**")
-                for tip in tips:
-                    st.write(f"• {tip}")
-    
-    # Interfaz principal
-    if not corrector.is_ready():
-        st.error("❌ Sistema no está listo. Revisa la configuración de APIs.")
-        return
-    
-    # Carga de archivos
-    st.header("📁 Cargar examen")
-    
-    uploaded_file = st.file_uploader(
-        "Sube imagen o PDF del examen",
-        type=['jpg', 'jpeg', 'png', 'pdf'],
-        help="Formatos soportados: JPG, PNG, PDF"
-    )
-    
-    if uploaded_file is not None:
-        # Mostrar archivo cargado
-        st.success(f"✅ Archivo cargado: {uploaded_file.name}")
-        
-        # Vista previa si es imagen
-        if uploaded_file.type.startswith('image/'):
-            image = Image.open(uploaded_file)
-            st.image(image, caption="Vista previa", use_column_width=True)
-        
-        # Procesar archivo
-        if st.button("🔍 Procesar y corregir examen", type="primary"):
-            with st.spinner("Procesando examen..."):
-                
-                # Extraer texto
-                st.info("📝 Extrayendo texto...")
-                text, ocr_method, text_quality = corrector.extract_text_from_file(uploaded_file)
-                
-                if text:
-                    # Mostrar texto extraído
-                    with st.expander("📄 Texto extraído"):
-                        st.text_area("Texto del examen", text, height=200)
-                        st.info(f"Método: {ocr_method} | Calidad: {text_quality:.1%}")
-                    
-                    # Corregir examen
-                    st.info("🤖 Corrigiendo con IA...")
-                    correction_data, error = corrector.correct_exam(
-                        text, subject, custom_rubric, total_points
-                    )
-                    
-                    if correction_data:
-                        # Mostrar resultados
-                        st.success("✅ Examen corregido exitosamente")
-                        
-                        # Métricas principales
-                        col1, col2, col3, col4 = st.columns(4)
-                        
-                        with col1:
-                            st.metric(
-                                "Puntuación",
-                                f"{correction_data.get('puntuacion_total', 0)}/{correction_data.get('puntuacion_maxima', total_points)}"
-                            )
-                        
-                        with col2:
-                            st.metric(
-                                "Porcentaje",
-                                f"{correction_data.get('porcentaje', 0):.1f}%"
-                            )
-                        
-                        with col3:
-                            st.metric(
-                                "Calificación",
-                                correction_data.get('calificacion_letra', 'F')
-                            )
-                        
-                        with col4:
-                            st.metric(
-                                "Calidad OCR",
-                                f"{text_quality:.1%}"
-                            )
-                        
-                        # Análisis detallado
-                        st.header("📊 Análisis detallado")
-                        
-                        # Preguntas analizadas
-                        if 'preguntas_analizadas' in correction_data:
-                            st.subheader("📝 Preguntas analizadas")
-                            for i, pregunta in enumerate(correction_data['preguntas_analizadas']):
-                                with st.expander(f"Pregunta {pregunta.get('numero', i+1)}"):
-                                    col1, col2 = st.columns(2)
-                                    
-                                    with col1:
-                                        st.write("**Pregunta:**")
-                                        st.write(pregunta.get('pregunta', 'No identificada'))
-                                        
-                                        st.write("**Respuesta del estudiante:**")
-                                        st.write(pregunta.get('respuesta_estudiante', 'No identificada'))
-                                    
-                                    with col2:
-                                        st.write("**Puntuación:**")
-                                        st.write(f"{pregunta.get('puntos_obtenidos', 0)}/{pregunta.get('puntos_maximos', 0)}")
-                                        
-                                        if pregunta.get('es_correcta', False):
-                                            st.success("✅ Correcta")
-                                        else:
-                                            st.error("❌ Incorrecta")
-                                    
-                                    st.write("**Explicación:**")
-                                    st.write(pregunta.get('explicacion', 'No disponible'))
-                                    
-                                    st.write("**Sugerencias:**")
-                                    st.write(pregunta.get('sugerencias', 'No disponible'))
-                        
-                        # Resumen general
-                        if 'resumen_general' in correction_data:
-                            st.subheader("📋 Resumen general")
-                            resumen = correction_data['resumen_general']
-                            
-                            col1, col2 = st.columns(2)
-                            
-                            with col1:
-                                st.write("**Fortalezas:**")
-                                for fortaleza in resumen.get('fortalezas', []):
-                                    st.write(f"• {fortaleza}")
-                            
-                            with col2:
-                                st.write("**Áreas de mejora:**")
-                                for area in resumen.get('areas_mejora', []):
-                                    st.write(f"• {area}")
-                            
-                            st.write("**Recomendaciones:**")
-                            for recomendacion in resumen.get('recomendaciones', []):
-                                st.write(f"• {recomendacion}")
-                        
-                        # Información adicional
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            if 'tiempo_estimado_estudio' in correction_data:
-                                st.info(f"⏱️ Tiempo estimado de estudio: {correction_data['tiempo_estimado_estudio']}")
-                        
-                        with col2:
-                            if 'recursos_recomendados' in correction_data:
-                                st.info("📚 Recursos recomendados:")
-                                for recurso in correction_data['recursos_recomendados']:
-                                    st.write(f"• {recurso}")
-                        
-                        # Guardar resultado
-                        if corrector.save_exam_result(
-                            1, None, uploaded_file.name, subject, 
-                            correction_data, ocr_method, text_quality
-                        ):
-                            st.success("💾 Resultado guardado exitosamente")
-                        
-                    else:
-                        st.error(f"❌ Error en la corrección: {error}")
-                else:
-                    st.error("❌ No se pudo extraer texto del archivo")
-    
-        def validate_extracted_text(self, text):
-            """Valida la calidad del texto extraído"""
-            if not text or len(text.strip()) < 10:
-                return False, "Texto demasiado corto"
-        
-        # Verificar si hay contenido coherente
-            words = text.split()
-            if len(words) < 5:
-                return False, "Muy pocas palabras extraídas"
-        
-        # Verificar caracteres especiales excesivos
-            special_chars = sum(1 for c in text if not c.isalnum() and c not in ' \n\t.,;:!?-')
-            if special_chars / len(text) > 0.3:
-                return False, "Demasiados caracteres especiales - posible error OCR"
-        
-            return True, "Texto válido"
+    def validate_extracted_text(self, text):
+        """Valida la calidad del texto extraído"""
+        if not text or len(text.strip()) < 10:
+            return False, "Texto demasiado corto"
+        words = text.split()
+        if len(words) < 5:
+            return False, "Muy pocas palabras extraídas"
+        special_chars = sum(1 for c in text if not c.isalnum() and c not in ' \n\t.,;:!?-')
+        if special_chars / len(text) > 0.3:
+            return False, "Demasiados caracteres especiales - posible error OCR"
+        return True, "Texto válido"
 
-    
-        def clean_extracted_text(self, text):
-            """Limpia el texto extraído por OCR"""
-        # Eliminar caracteres extraños comunes en OCR
-            text = text.replace('|', 'l')
-            text = text.replace('0', 'o')  # En algunos contextos
-            text = text.replace('5', 's')  # En algunos contextos
-        
-        # Eliminar líneas muy cortas que pueden ser ruido
-            lines = text.split('\n')
-            cleaned_lines = []
-        
-            for line in lines:
-                line = line.strip()
-                if len(line) > 2 and not line.startswith('[?]'):
-                    cleaned_lines.append(line)
-        
-            return '\n'.join(cleaned_lines)
-    
-        def create_error_correction(self, error_msg):
-            """Crea una corrección de error cuando OCR falla"""
-            return {
-                "nota_final": {
-                    "puntuacion": 0,
-                    "puntuacion_maxima": 100,
-                    "porcentaje": 0,
-                    "letra": "F"
-                },
-                "evaluaciones": [{
-                    "seccion": "Error de Procesamiento",
-                    "puntos": 0,
-                    "max_puntos": 100,
-                    "comentario": f"No se pudo evaluar el examen: {error_msg}",
-                    "fortalezas": [],
-                    "mejoras": ["Verificar calidad de la imagen", "Usar imagen más clara"]
-                }],
-                "comentario": f"Error en procesamiento: {error_msg}",
-                "recomendaciones": [
-                    "Verificar que la imagen sea clara y legible",
-                    "Asegurar buena iluminación",
-                    "Usar mayor resolución",
-                    "Verificar que el texto sea lo suficientemente grande"
+    def clean_extracted_text(self, text):
+        """Limpia el texto extraído por OCR"""
+        text = text.replace('|', 'l')
+        text = text.replace('0', 'o')
+        text = text.replace('5', 's')
+        lines = text.split('\n')
+        cleaned_lines = []
+        for line in lines:
+            line = line.strip()
+            if len(line) > 2 and not line.startswith('[?]'):
+                cleaned_lines.append(line)
+        return '\n'.join(cleaned_lines)
+
+    def create_error_correction(self, error_msg):
+        """Crea una corrección de error cuando OCR falla"""
+        return {
+            "nota_final": {
+                "puntuacion": 0,
+                "puntuacion_maxima": 100,
+                "porcentaje": 0,
+                "letra": "F"
+            },
+            "evaluaciones": [{
+                "seccion": "Error de Procesamiento",
+                "puntos": 0,
+                "max_puntos": 100,
+                "comentario": f"No se pudo evaluar el examen: {error_msg}",
+                "fortalezas": [],
+                "mejoras": ["Verificar calidad de la imagen", "Usar imagen más clara"]
+            }],
+            "comentario": f"Error en procesamiento: {error_msg}",
+            "recomendaciones": [
+                "Verificar que la imagen sea clara y legible",
+                "Asegurar buena iluminación",
+                "Usar mayor resolución",
+                "Verificar que el texto sea lo suficientemente grande"
+            ],
+            "calidad_texto": "Error en extracción"
+        }
+
+    def create_fallback_correction(self, exam_text=""):
+        """Corrección de emergencia mejorada"""
+        if len(exam_text.strip()) < 50:
+            puntuacion = 30
+            letra = "F"
+            comentario = "Texto extraído muy corto - posible problema de OCR"
+        else:
+            puntuacion = 60
+            letra = "D"
+            comentario = "Evaluación básica - problema en procesamiento avanzado"
+        return {
+            "nota_final": {
+                "puntuacion": puntuacion,
+                "puntuacion_maxima": 100,
+                "porcentaje": puntuacion,
+                "letra": letra
+            },
+            "evaluaciones": [{
+                "seccion": "Evaluación Básica",
+                "puntos": puntuacion,
+                "max_puntos": 100,
+                "comentario": comentario,
+                "fortalezas": ["Envío completado"],
+                "mejoras": ["Mejorar legibilidad", "Verificar calidad de imagen"]
+            }],
+            "comentario": "Corrección automática básica aplicada",
+            "recomendaciones": [
+                "Mejorar calidad de la imagen",
+                "Verificar configuración OCR",
+                "Usar letra más clara"
+            ]
+        }
+
+    def generate_criteria_from_text(self, text, subject):
+        """Genera criterios automáticamente desde texto usando DeepSeek"""
+        try:
+            if not text or len(text.strip()) < 20:
+                return {
+                    "criteria": f"Criterios básicos para {subject}",
+                    "rubric": "Excelente (90-100), Bueno (70-89), Regular (50-69), Deficiente (0-49)"
+                }
+            response = self.client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": f"Eres un experto en {subject}. Genera criterios de evaluación basándote en el texto del examen."},
+                    {"role": "user", "content": f"Basándote en este texto de examen de {subject}, genera criterios de evaluación específicos:\n\n{text[:1000]}"}
                 ],
-                "calidad_texto": "Error en extracción"
-            }
-    
-        def create_fallback_correction(self, exam_text=""):
-            """Corrección de emergencia mejorada"""
-        # Intentar evaluar longitud del texto
-            if len(exam_text.strip()) < 50:
-                puntuacion = 30
-                letra = "F"
-                comentario = "Texto extraído muy corto - posible problema de OCR"
-            else:
-                puntuacion = 60
-                letra = "D"
-                comentario = "Evaluación básica - problema en procesamiento avanzado"
-        
-            return {
-                "nota_final": {
-                    "puntuacion": puntuacion,
-                    "puntuacion_maxima": 100,
-                    "porcentaje": puntuacion,
-                    "letra": letra
-                },
-                "evaluaciones": [{
-                    "seccion": "Evaluación Básica",
-                    "puntos": puntuacion,
-                    "max_puntos": 100,
-                    "comentario": comentario,
-                    "fortalezas": ["Envío completado"],
-                    "mejoras": ["Mejorar legibilidad", "Verificar calidad de imagen"]
-                }],
-                "comentario": "Corrección automática básica aplicada",
-                "recomendaciones": [
-                    "Mejorar calidad de la imagen",
-                    "Verificar configuración OCR",
-                    "Usar letra más clara"
-                ]
-            }
-
-        def generate_criteria_from_text(self, text, subject):
-            """Genera criterios automáticamente desde texto usando DeepSeek"""
-            try:
-            # Verificar que el texto sea válido
-                if not text or len(text.strip()) < 20:
-                    return {
-                        "criteria": f"Criterios básicos para {subject}",
-                        "rubric": "Excelente (90-100), Bueno (70-89), Regular (50-69), Deficiente (0-49)"
-                    }
-            
-                response = self.client.chat.completions.create(
-                    model="deepseek-chat",
-                    messages=[
-                        {"role": "system", "content": f"Eres un experto en {subject}. Genera criterios de evaluación basándote en el texto del examen."},
-                        {"role": "user", "content": f"Basándote en este texto de examen de {subject}, genera criterios de evaluación específicos:\n\n{text[:1000]}"}
-                    ],
-                    temperature=0.1,
-                    max_tokens=400
-                )
-        
-                response_text = response.choices[0].message.content
-            
-            # Extraer criterios y rúbrica
-                if "criterios" in response_text.lower():
-                    parts = response_text.lower().split("criterios")
-                    if len(parts) > 1:
-                        criteria = parts[1].split("rúbrica")[0].strip() if "rúbrica" in parts[1] else parts[1].strip()
-                    else:
-                        criteria = response_text
+                temperature=0.1,
+                max_tokens=400
+            )
+            response_text = response.choices[0].message.content
+            if "criterios" in response_text.lower():
+                parts = response_text.lower().split("criterios")
+                if len(parts) > 1:
+                    criteria = parts[1].split("rúbrica")[0].strip() if "rúbrica" in parts[1] else parts[1].strip()
                 else:
                     criteria = response_text
-            
-            # Generar rúbrica estándar
-                rubric = f"Rúbrica para {subject}: Excelente (90-100): Dominio completo, Bueno (70-89): Comprensión adecuada, Regular (50-69): Comprensión básica, Deficiente (0-49): No demuestra comprensión"
-            
-                return {
-                    "criteria": criteria[:500],  # Limitar longitud
-                    "rubric": rubric
-                }
-            
-            except Exception as e:
-                st.error(f"Error generando criterios: {str(e)}")
-                return {
-                    "criteria": f"Criterios personalizados para {subject}",
-                    "rubric": f"Rúbrica personalizada para {subject}"
-                }
-    
-        def save_exam_result(self, user_id, group_id, filename, subject, result, ocr_method="unknown", text_quality=0.0):
-            """Guarda resultado en base de datos con calidad de texto"""
-            conn = sqlite3.connect('mentor_ia.db')
-            cursor = conn.cursor()
-        
-            cursor.execute('''
-                INSERT INTO exams (user_id, group_id, filename, subject, grade, total_points, corrections, ocr_method, text_quality)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                user_id,
-                group_id,
-                filename,
-                subject,
-                result['nota_final']['puntuacion'],
-                result['nota_final']['puntuacion_maxima'],
-                json.dumps(result, ensure_ascii=False),
-                ocr_method,
-                text_quality
-            ))
-        
-            cursor.execute('''
-                UPDATE users SET exams_used = exams_used + 1 WHERE id = ?
-            ''', (user_id,))
-        
-            conn.commit()
-            conn.close()
-    
-        def get_user_stats(self, user_id):
-            """Obtiene estadísticas del usuario"""
-            conn = sqlite3.connect('mentor_ia.db')
-    
-            df_exams = pd.read_sql_query('''
-                SELECT e.*, g.name as group_name
-                FROM exams e
-                LEFT JOIN groups g ON e.group_id = g.id
-                WHERE e.user_id = ? 
-                ORDER BY e.created_at DESC
-                LIMIT 200
-            ''', conn, params=(user_id,))
-    
-            conn.close()
-            return df_exams
+            else:
+                criteria = response_text
+            rubric = f"Rúbrica para {subject}: Excelente (90-100): Dominio completo, Bueno (70-89): Comprensión adecuada, Regular (50-69): Comprensión básica, Deficiente (0-49): No demuestra comprensión"
+            return {
+                "criteria": criteria[:500],
+                "rubric": rubric
+            }
+        except Exception as e:
+            st.error(f"Error generando criterios: {str(e)}")
+            return {
+                "criteria": f"Criterios personalizados para {subject}",
+                "rubric": f"Rúbrica personalizada para {subject}"
+            }
 
-        def get_or_create_user(self, username="usuario_demo", plan="free"):
-            """Obtiene o crea usuario"""
-            conn = sqlite3.connect('mentor_ia.db')
-            cursor = conn.cursor()
-    
+    def get_user_stats(self, user_id):
+        """Obtiene estadísticas del usuario"""
+        conn = sqlite3.connect('mentor_ia.db')
+        df_exams = pd.read_sql_query('''
+            SELECT e.*, g.name as group_name
+            FROM exams e
+            LEFT JOIN groups g ON e.group_id = g.id
+            WHERE e.user_id = ? 
+            ORDER BY e.created_at DESC
+            LIMIT 200
+        ''', conn, params=(user_id,))
+        conn.close()
+        return df_exams
+
+    def get_or_create_user(self, username="usuario_demo", plan="free"):
+        """Obtiene o crea usuario"""
+        conn = sqlite3.connect('mentor_ia.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
+        user = cursor.fetchone()
+        if not user:
+            cursor.execute('''
+                INSERT INTO users (username, plan, exams_used) VALUES (?, ?, 0)
+            ''', (username, plan))
+            conn.commit()
             cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
             user = cursor.fetchone()
-    
-            if not user:
-                cursor.execute('''
-                    INSERT INTO users (username, plan, exams_used) VALUES (?, ?, 0)
-                ''', (username, plan))
-                conn.commit()
-                cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
-                user = cursor.fetchone()
-    
-            conn.close()
-            return user
-    
-        def create_group(self, user_id, name, subject, description=""):
-            """Crea un nuevo grupo"""
-            conn = sqlite3.connect('mentor_ia.db')
-            cursor = conn.cursor()
-        
-            cursor.execute('''
-                INSERT INTO groups (user_id, name, subject, description)
-                VALUES (?, ?, ?, ?)
-            ''', (user_id, name, subject, description))
-        
-            conn.commit()
-            conn.close()
-    
-        def get_user_groups(self, user_id):
-            """Obtiene grupos del usuario"""
-            conn = sqlite3.connect('mentor_ia.db')
-        
-            df_groups = pd.read_sql_query('''
-                SELECT * FROM groups WHERE user_id = ? ORDER BY created_at DESC
-            ''', conn, params=(user_id,))
-        
-            conn.close()
-            return df_groups
-    
-        def update_user_plan(self, user_id, plan):
-            """Actualiza el plan del usuario"""
-            conn = sqlite3.connect('mentor_ia.db')
-            cursor = conn.cursor()
-        
-            cursor.execute('''
-                UPDATE users SET plan = ? WHERE id = ?
-            ''', (plan, user_id))
-        
-            conn.commit()
-            conn.close()
+        conn.close()
+        return user
 
-def show_ocr_configuration():
+    def create_group(self, user_id, name, subject, description=""):
+        """Crea un nuevo grupo"""
+        conn = sqlite3.connect('mentor_ia.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO groups (user_id, name, subject, description)
+            VALUES (?, ?, ?, ?)
+        ''', (user_id, name, subject, description))
+        conn.commit()
+        conn.close()
+
+    def get_user_groups(self, user_id):
+        """Obtiene grupos del usuario"""
+        conn = sqlite3.connect('mentor_ia.db')
+        df_groups = pd.read_sql_query('''
+            SELECT * FROM groups WHERE user_id = ? ORDER BY created_at DESC
+        ''', conn, params=(user_id,))
+        conn.close()
+        return df_groups
+
+    def update_user_plan(self, user_id, plan):
+        """Actualiza el plan del usuario"""
+        conn = sqlite3.connect('mentor_ia.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE users SET plan = ? WHERE id = ?
+        ''', (plan, user_id))
+        conn.commit()
+        conn.close()
     """Muestra configuración de Microsoft OCR"""
     st.subheader("🔧 Configuración Microsoft OCR")
     
