@@ -161,41 +161,41 @@ class ImprovedGoogleOCR:
         return self.is_available and self.api_key and len(self.api_key) > 30
         
     def validate_image_quality(self, image_data):
-    """Valida calidad de imagen antes de OCR - VERSION MEJORADA"""
-    try:
+        """Valida calidad de imagen antes de OCR - VERSION MEJORADA"""
+        try:
         # Convertir a numpy array
-        nparr = np.frombuffer(image_data, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            nparr = np.frombuffer(image_data, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
-        if img is None:
-            return False, "No se pudo cargar la imagen"
+            if img is None:
+                return False, "No se pudo cargar la imagen"
         
-        height, width = img.shape[:2]
+            height, width = img.shape[:2]
         
         # Verificar resolución mínima (MÁS FLEXIBLE)
-        if width < 400 or height < 300:
-            return False, f"Resolución muy baja: {width}x{height}. Mínimo recomendado: 400x300"
+            if width < 400 or height < 300:
+                return False, f"Resolución muy baja: {width}x{height}. Mínimo recomendado: 400x300"
         
         # Verificar tamaño de archivo (Google Vision API límite: 20MB)
-        if len(image_data) > 20 * 1024 * 1024:  # 20MB
-            return False, "Archivo muy grande (>20MB)"
+            if len(image_data) > 20 * 1024 * 1024:  # 20MB
+                return False, "Archivo muy grande (>20MB)"
         
         # Reducir límite mínimo (MÁS FLEXIBLE)
-        if len(image_data) < 10 * 1024:  # 10KB
-            return False, "Archivo muy pequeño (<10KB). Posible imagen corrupta"
+            if len(image_data) < 10 * 1024:  # 10KB
+                return False, "Archivo muy pequeño (<10KB). Posible imagen corrupta"
         
         # Verificar calidad general (MÁS FLEXIBLE)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        blur_score = cv2.Laplacian(gray, cv2.CV_64F).var()
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            blur_score = cv2.Laplacian(gray, cv2.CV_64F).var()
         
         # Reducir threshold de blur (MÁS FLEXIBLE)
-        if blur_score < 30:
-            print(f"⚠️ Imagen posiblemente borrosa (score: {blur_score:.1f}), pero procesando...")
+            if blur_score < 30:
+                print(f"⚠️ Imagen posiblemente borrosa (score: {blur_score:.1f}), pero procesando...")
         
-        return True, f"Imagen válida: {width}x{height}, blur_score: {blur_score:.1f}"
+            return True, f"Imagen válida: {width}x{height}, blur_score: {blur_score:.1f}"
         
-    except Exception as e:
-        return False, f"Error validando imagen: {str(e)}"
+        except Exception as e:
+            return False, f"Error validando imagen: {str(e)}"
     
     def enhance_image_for_ocr(self, image_data):
         """Mejora imagen específicamente para OCR de escritura manual"""
