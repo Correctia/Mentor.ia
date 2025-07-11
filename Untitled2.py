@@ -326,6 +326,41 @@ class ExamCorrector:
             st.error(f"Error extrayendo texto: {str(e)}")
             return None, "error", 0.0
 
+    def generate_criteria_from_text(self, text, subject):
+        """
+        Genera criterios y rúbrica automáticamente usando IA.
+        """
+        # Puedes personalizar el prompt y la lógica según tu necesidad
+        prompt = f"""
+        Eres un profesor experto en {subject}. Analiza el siguiente texto de examen y genera:
+        1. Una lista de criterios de evaluación relevantes.
+        2. Una rúbrica de calificación breve.
+        Texto del examen:
+        {text}
+        """
+        try:
+            response = self.client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": "Genera criterios y rúbrica para corrección de exámenes."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=1000,
+                temperature=0.5
+            )
+            result = response.choices[0].message.content
+            # Puedes intentar extraer criterios y rúbrica del resultado
+            # Aquí simplemente devolvemos el texto completo como ambos
+            return {
+                "criteria": result,
+                "rubric": result
+            }
+        except Exception as e:
+            return {
+                "criteria": "No se pudo generar criterios automáticamente.",
+                "rubric": "No se pudo generar rúbrica automáticamente."
+            }
+    
     def correct_exam(self, text, subject, rubric=None, total_points=10):
         if not self.client:
             return None, "DeepSeek API no configurada"
