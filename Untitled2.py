@@ -360,10 +360,22 @@ class ExamCorrector:
                 "criteria": "No se pudo generar criterios automáticamente.",
                 "rubric": "No se pudo generar rúbrica automáticamente."
             }
-    
+            
     def correct_exam(self, text, subject, rubric=None, total_points=10):
         if not self.client:
-            return None, "DeepSeek API no configurada"
+            return {
+                "nota_final": {
+                    "puntuacion": 0,
+                    "puntuacion_maxima": total_points,
+                    "porcentaje": 0,
+                    "letra": "F"
+                },
+                "evaluaciones": [],
+                "comentario": ["DeepSeek API no configurada"],
+                "recomendaciones": [],
+                "calidad_texto": None,
+                "respuesta_raw": None
+            }
         try:
             system_prompt = f"""
             Eres un profesor experto en {subject} con años de experiencia en corrección de exámenes.
@@ -408,39 +420,36 @@ class ExamCorrector:
             response_text = response.choices[0].message.content
             try:
                 correction_data = json.loads(response_text)
-                return correction_data, None
                 result = {
-                "nota_final": {
-                    "puntuacion": correction_data.get("puntuacion_total", 0),
-                    "puntuacion_maxima": correction_data.get("puntuacion_maxima", total_points),
-                    "porcentaje": correction_data.get("porcentaje", 0),
-                    "letra": correction_data.get("calificacion_letra", "F")
-                },
-                "evaluaciones": correction_data.get("preguntas_analizadas", []),
-                "comentario": correction_data.get("resumen_general", {}).get("fortalezas", []),
-                "recomendaciones": correction_data.get("resumen_general", {}).get("recomendaciones", []),
-                "calidad_texto": None,
-                "respuesta_raw": response_text
-            }
-            return result
-        except json.JSONDecodeError:
-            return {
-                "nota_final": {
-                    "puntuacion": 0,
-                    "puntuacion_maxima": total_points,
-                    "porcentaje": 0,
-                    "letra": "F"
-                },
-                "evaluaciones": [],
-                "comentario": ["Error en el procesamiento de la respuesta"],
-                "recomendaciones": ["Revisar el texto del examen"],
-                "calidad_texto": None,
-                "respuesta_raw": response_text
-            }
-            return result
+                    "nota_final": {
+                        "puntuacion": correction_data.get("puntuacion_total", 0),
+                        "puntuacion_maxima": correction_data.get("puntuacion_maxima", total_points),
+                        "porcentaje": correction_data.get("porcentaje", 0),
+                        "letra": correction_data.get("calificacion_letra", "F")
+                    },
+                    "evaluaciones": correction_data.get("preguntas_analizadas", []),
+                    "comentario": correction_data.get("resumen_general", {}).get("fortalezas", []),
+                    "recomendaciones": correction_data.get("resumen_general", {}).get("recomendaciones", []),
+                    "calidad_texto": None,
+                    "respuesta_raw": response_text
+                }
+                return result
+            except json.JSONDecodeError:
+                return {
+                    "nota_final": {
+                        "puntuacion": 0,
+                        "puntuacion_maxima": total_points,
+                        "porcentaje": 0,
+                        "letra": "F"
+                    },
+                    "evaluaciones": [],
+                    "comentario": ["Error en el procesamiento de la respuesta"],
+                    "recomendaciones": ["Revisar el texto del examen"],
+                    "calidad_texto": None,
+                    "respuesta_raw": response_text
+                }
         except Exception as e:
-            return None, f"Error en corrección: {str(e)}"
-            result = {
+            return {
                 "nota_final": {
                     "puntuacion": 0,
                     "puntuacion_maxima": total_points,
@@ -453,7 +462,7 @@ class ExamCorrector:
                 "calidad_texto": None,
                 "respuesta_raw": None
             }
-            return result
+                return result
 
     def save_exam_result(self, user_id, group_id, filename, subject, correction_data, ocr_method, text_quality):
         if not self.db:
