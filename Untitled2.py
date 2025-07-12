@@ -332,7 +332,7 @@ def init_session_state():
 
 # Interfaz principal
 def main():
-    st.title("Mentor.ia-Coreector de examenes inteligente")
+    st.title("Mentor.ia")
     st.markdown("---")
     
     # Inicializar configuración
