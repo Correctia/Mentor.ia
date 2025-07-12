@@ -7,3 +7,4 @@ pillow
 plotly
 PyMuPDF
 pytesseract
+streamlit-webrtc
