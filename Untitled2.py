@@ -55,9 +55,7 @@ class APIConfig:
     def __init__(self):
         self.deepseek_api_key = st.secrets.get("DEEPSEEK_API_KEY", "")
         self.google_vision_api_key = st.secrets.get("GOOGLE_VISION_API_KEY", "")
-        self.mathpix_app_id = st.secrets.get("MATHPIX_APP_ID", "")
-        self.mathpix_app_key = st.secrets.get("MATHPIX_APP_KEY", "")
-
+       
 # Servicios de OCR
 class OCRService:
     def __init__(self, config: APIConfig):
@@ -93,35 +91,6 @@ class OCRService:
             st.error(f"Error en Google Vision OCR: {str(e)}")
             return ""
     
-    def mathpix_ocr(self, image_data: bytes) -> str:
-        """OCR usando Mathpix para asignaturas de ciencias"""
-        url = "https://api.mathpix.com/v3/text"
-        
-        headers = {
-            "app_id": self.config.mathpix_app_id,
-            "app_key": self.config.mathpix_app_key,
-            "Content-Type": "application/json"
-        }
-        
-        image_b64 = base64.b64encode(image_data).decode()
-        
-        payload = {
-            "src": f"data:image/jpeg;base64,{image_b64}",
-            "formats": ["text", "latex_styled"],
-            "data_options": {
-                "include_asciimath": True,
-                "include_latex": True
-            }
-        }
-        
-        try:
-            response = requests.post(url, json=payload, headers=headers)
-            response.raise_for_status()
-            result = response.json()
-            return result.get("text", "")
-        except Exception as e:
-            st.error(f"Error en Mathpix OCR: {str(e)}")
-            return ""
 
 # Servicio de IA para corrección
 class AIService:
