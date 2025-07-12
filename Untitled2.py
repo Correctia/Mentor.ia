@@ -45,7 +45,7 @@ class APIConfig:
     def __init__(self):
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "")
         self.google_vision_api_key = os.getenv("GOOGLE_VISION_API_KEY", "")
-        self.mathpix_api_key = os.getenv("MATHPIX_API_KEY", "")
+        #self.mathpix_api_key = os.getenv("MATHPIX_API_KEY", "")
 
 # Procesador avanzado de imágenes
 class AdvancedImageProcessor:
@@ -87,39 +87,39 @@ class OCRService:
     def __init__(self, config: APIConfig):
         self.config = config
     
-    def mathpix_ocr(self, image_data: bytes) -> str:
-        """OCR usando Mathpix para matemáticas y ciencias"""
-        if not self.config.mathpix_api_key:
-            st.error("API key de Mathpix no configurada")
-            return ""
+    #def mathpix_ocr(self, image_data: bytes) -> str:
+       # """OCR usando Mathpix para matemáticas y ciencias"""
+        #if not self.config.mathpix_api_key:
+           # st.error("API key de Mathpix no configurada")
+            #return ""
         
-        url = "https://api.mathpix.com/v3/text"
+        #url = "https://api.mathpix.com/v3/text"
         
-        headers = {
-            "app_id": "your_app_id",
-            "app_key": self.config.mathpix_api_key,
-            "Content-Type": "application/json"
-        }
+        #headers = {
+            #"app_id": "your_app_id",
+            #"app_key": self.config.mathpix_api_key,
+            #"Content-Type": "application/json"
+        #}
         
-        image_b64 = base64.b64encode(image_data).decode()
+        #image_b64 = base64.b64encode(image_data).decode()
         
-        payload = {
-            "src": f"data:image/png;base64,{image_b64}",
-            "formats": ["text", "latex_styled"],
-            "data_options": {
-                "include_asciimath": True,
-                "include_latex": True
-            }
-        }
+        #payload = {
+            #"src": f"data:image/png;base64,{image_b64}",
+            #"formats": ["text", "latex_styled"],
+            #"data_options": {
+                #"include_asciimath": True,
+                #"include_latex": True
+            #}
+        #}
         
-        try:
-            response = requests.post(url, json=payload, headers=headers)
-            response.raise_for_status()
-            result = response.json()
-            return result.get("text", "")
-        except Exception as e:
-            st.error(f"Error en Mathpix OCR: {str(e)}")
-            return ""
+        #try:
+            #response = requests.post(url, json=payload, headers=headers)
+            #response.raise_for_status()
+            #result = response.json()
+            #return result.get("text", "")
+        #except Exception as e:
+            #st.error(f"Error en Mathpix OCR: {str(e)}")
+            #return ""
     
     def google_vision_ocr(self, image_data: bytes) -> str:
         """OCR usando Google Vision API para asignaturas de letras"""
