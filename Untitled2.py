@@ -53,8 +53,8 @@ class Exam:
 # Configuración de APIs
 class APIConfig:
     def __init__(self):
-        self.deepseek_api_key = st.secrets.get("DEEPSEEK_API_KEY", "")
-        self.google_vision_api_key = st.secrets.get("GOOGLE_VISION_API_KEY", "")
+        self.deepseek_api_key = st.secrets.get("DEEPSEEK_API_KEY", "sk-42d24fd956db4146b24782e33879b6ad")
+        self.google_vision_api_key = st.secrets.get("GOOGLE_VISION_API_KEY", "AIzaSyAyGT7uDH5Feaqtc27fcF7ArgkrRO8jU0Q")
         self.mathpix_app_id = st.secrets.get("MATHPIX_APP_ID", "")
         self.mathpix_app_key = st.secrets.get("MATHPIX_APP_KEY", "")
 
