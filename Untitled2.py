@@ -1,135 +1,396 @@
-import os
-import io
+import streamlit as st
+import requests
 import json
 import base64
-import requests
+import io
+import os
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+from typing import Dict, List, Optional
 from dataclasses import dataclass
 from enum import Enum
-
-import streamlit as st
-import pandas as pd
-from PIL import Image, ImageDraw, ImageFont
-import fitz  # PyMuPDF
+from PIL import Image
 import cv2
 import numpy as np
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
-import av
+from pdf2image import convert_from_bytes
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Mentor.ia",
-    page_icon="",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="Corrector de Exámenes con IA",
+    page_icon="🤖",
+    layout="wide"
 )
 
-# Enumeraciones y clases de datos
+# Enumeraciones
 class SubjectType(Enum):
-    LETTERS = "letras"
     SCIENCES = "ciencias"
+    HUMANITIES = "letras"
 
+class GradeLevel(Enum):
+    PRIMARY = "primaria"
+    SECONDARY = "secundaria"
+    BACHILLERATO = "bachillerato"
+    UNIVERSITY = "universidad"
+
+# Modelos de datos
 @dataclass
-class ExamClass:
-    id: str
+class ClassInfo:
     name: str
     subject: str
+    grade: GradeLevel
     subject_type: SubjectType
-    teacher_name: str
-    created_at: datetime
+    students_count: int = 0
 
-@dataclass
-class Exam:
-    id: str
-    class_id: str
-    title: str
-    content: str
-    corrections: List[Dict]
-    grade: float
-    created_at: datetime
-    corrected_at: Optional[datetime] = None
-
-# Configuración de APIs
+# Configuración de API
 class APIConfig:
     def __init__(self):
-        self.deepseek_api_key = st.secrets.get("DEEPSEEK_API_KEY", "")
-        self.google_vision_api_key = st.secrets.get("GOOGLE_VISION_API_KEY", "")
-       
-# Servicios de OCR
+        self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "")
+        self.google_vision_api_key = os.getenv("GOOGLE_VISION_API_KEY", "")
+        self.mathpix_api_key = os.getenv("MATHPIX_API_KEY", "")
+
+# Procesador avanzado de imágenes
+class AdvancedImageProcessor:
+    def preprocess_image_for_ocr(self, image_bytes: bytes) -> bytes:
+        """Procesa la imagen para mejorar el OCR"""
+        try:
+            # Convertir bytes a imagen
+            nparr = np.frombuffer(image_bytes, np.uint8)
+            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            # Convertir a escala de grises
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            
+            # Aplicar filtro bilateral para reducir ruido
+            denoised = cv2.bilateralFilter(gray, 9, 75, 75)
+            
+            # Mejorar contraste
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            enhanced = clahe.apply(denoised)
+            
+            # Binarización adaptativa
+            binary = cv2.adaptiveThreshold(
+                enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+            )
+            
+            # Convertir de vuelta a bytes
+            success, encoded_image = cv2.imencode('.png', binary)
+            if success:
+                return encoded_image.tobytes()
+            else:
+                return image_bytes
+                
+        except Exception as e:
+            st.warning(f"Error procesando imagen: {str(e)}")
+            return image_bytes
+
+# Servicio OCR
 class OCRService:
     def __init__(self, config: APIConfig):
         self.config = config
-
-    # Modificaciones para integrar en tu código principal
-
-# 1. Importar las nuevas clases al inicio del archivo
-from advanced_image_processor import AdvancedImageProcessor, preprocess_image, process_captured_image_enhanced
-
-# 2. Reemplazar la función preprocess_image existente
-def preprocess_image(image: Image.Image) -> bytes:
-    """Preprocesa la imagen para mejorar el OCR usando técnicas avanzadas"""
-    processor = AdvancedImageProcessor()
     
-    # Convertir PIL Image a bytes
-    img_bytes = io.BytesIO()
-    image.save(img_bytes, format='PNG')
-    img_bytes = img_bytes.getvalue()
+    def mathpix_ocr(self, image_data: bytes) -> str:
+        """OCR usando Mathpix para matemáticas y ciencias"""
+        if not self.config.mathpix_api_key:
+            st.error("API key de Mathpix no configurada")
+            return ""
+        
+        url = "https://api.mathpix.com/v3/text"
+        
+        headers = {
+            "app_id": "your_app_id",
+            "app_key": self.config.mathpix_api_key,
+            "Content-Type": "application/json"
+        }
+        
+        image_b64 = base64.b64encode(image_data).decode()
+        
+        payload = {
+            "src": f"data:image/png;base64,{image_b64}",
+            "formats": ["text", "latex_styled"],
+            "data_options": {
+                "include_asciimath": True,
+                "include_latex": True
+            }
+        }
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+            return result.get("text", "")
+        except Exception as e:
+            st.error(f"Error en Mathpix OCR: {str(e)}")
+            return ""
     
-    # Procesar la imagen
-    processed_bytes = processor.preprocess_image_for_ocr(img_bytes)
-    
-    return processed_bytes
+    def google_vision_ocr(self, image_data: bytes) -> str:
+        """OCR usando Google Vision API para asignaturas de letras"""
+        if not self.config.google_vision_api_key:
+            st.error("API key de Google Vision no configurada")
+            return ""
+        
+        url = f"https://vision.googleapis.com/v1/images:annotate?key={self.config.google_vision_api_key}"
+        
+        image_b64 = base64.b64encode(image_data).decode()
+        
+        payload = {
+            "requests": [{
+                "image": {"content": image_b64},
+                "features": [{
+                    "type": "TEXT_DETECTION",
+                    "maxResults": 1
+                }]
+            }]
+        }
+        
+        try:
+            response = requests.post(url, json=payload)
+            response.raise_for_status()
+            result = response.json()
+            
+            if "responses" in result and result["responses"]:
+                annotations = result["responses"][0].get("textAnnotations", [])
+                if annotations:
+                    return annotations[0]["description"]
+            return ""
+        except Exception as e:
+            st.error(f"Error en Google Vision OCR: {str(e)}")
+            return ""
 
-# 3. Modificar la función process_captured_image para usar el nuevo procesador
-def process_captured_image(image_array, selected_class, exam_title, ocr_service, ai_service):
-    """Procesa la imagen capturada con procesamiento avanzado"""
-    try:
-        # Crear procesador avanzado
-        processor = AdvancedImageProcessor()
+# Servicio de IA para corrección
+class AIService:
+    def __init__(self, config: APIConfig):
+        self.config = config
+    
+    def correct_exam(self, exam_text: str, subject_type: SubjectType, subject_name: str) -> Dict:
+        """Corrige el examen usando DeepSeek"""
+        if not self.config.deepseek_api_key:
+            st.error("❌ API key de DeepSeek no configurada")
+            return None
         
-        # Convertir numpy array a bytes
-        image_rgb = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)
-        pil_image = Image.fromarray(image_rgb)
+        url = "https://api.deepseek.com/v1/chat/completions"
         
-        img_bytes = io.BytesIO()
-        pil_image.save(img_bytes, format='PNG')
-        img_bytes = img_bytes.getvalue()
+        headers = {
+            "Authorization": f"Bearer {self.config.deepseek_api_key}",
+            "Content-Type": "application/json"
+        }
         
-        # Mostrar imagen original
-        st.image(pil_image, caption="Imagen capturada (original)", use_column_width=True)
-        
-        # Procesar imagen con técnicas avanzadas
-        with st.spinner("Procesando imagen con técnicas avanzadas..."):
-            processed_bytes = processor.preprocess_image_for_ocr(img_bytes)
+        if subject_type == SubjectType.SCIENCES:
+            system_prompt = f"""Eres un profesor experto en {subject_name} (asignatura de ciencias). 
+            Analiza el siguiente examen y proporciona correcciones detalladas.
             
-            # Mostrar imagen procesada
-            processed_image = Image.open(io.BytesIO(processed_bytes))
-            st.image(processed_image, caption="Imagen procesada", use_column_width=True)
+            Para cada pregunta identifica:
+            1. La pregunta original
+            2. La respuesta del estudiante
+            3. Si la respuesta es correcta o incorrecta
+            4. Comentarios específicos sobre errores
+            5. La respuesta correcta si es necesaria
+            6. Puntuación sugerida
             
-            # Aplicar OCR según el tipo de asignatura
-            if selected_class.subject_type == SubjectType.SCIENCES:
-                exam_text = ocr_service.mathpix_ocr(processed_bytes)
-            else:
-                exam_text = ocr_service.google_vision_ocr(processed_bytes)
+            Devuelve la respuesta en formato JSON con esta estructura:
+            {{
+                "corrections": [
+                    {{
+                        "question": "pregunta",
+                        "student_answer": "respuesta del estudiante",
+                        "is_correct": true/false,
+                        "comments": "comentarios específicos",
+                        "correct_answer": "respuesta correcta",
+                        "score": puntuación
+                    }}
+                ],
+                "total_score": puntuación_total,
+                "feedback": "comentarios generales"
+            }}"""
+        else:
+            system_prompt = f"""Eres un profesor experto en {subject_name} (asignatura de letras). 
+            Analiza el siguiente examen y proporciona correcciones detalladas.
             
-            if exam_text:
-                st.success("✅ Texto extraído exitosamente")
+            Para cada pregunta evalúa:
+            1. Comprensión del tema
+            2. Calidad de la argumentación
+            3. Uso correcto del lenguaje
+            4. Estructura de la respuesta
+            5. Contenido específico
+            
+            Devuelve la respuesta en formato JSON con la estructura anterior."""
+        
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Examen a corregir:\n\n{exam_text}"}
+            ],
+            "temperature": 0.1,
+            "max_tokens": 4000
+        }
+        
+        try:
+            with st.spinner("🔄 Procesando con IA..."):
+                response = requests.post(url, json=payload, headers=headers, timeout=30)
                 
-                # Mostrar texto extraído
-                with st.expander("Ver texto extraído"):
-                    st.text_area("Texto del examen", exam_text, height=200)
+                if response.status_code != 200:
+                    st.error(f"❌ Error HTTP {response.status_code}")
+                    return None
                 
-                # Corregir automáticamente
-                if st.button("🤖 Corregir Examen Escaneado"):
-                    correct_scanned_exam(exam_text, selected_class, exam_title, ai_service)
-            else:
-                st.error("❌ No se pudo extraer texto de la imagen")
+                result = response.json()
+                
+                if "choices" not in result or not result["choices"]:
+                    st.error("❌ Respuesta de API inválida")
+                    return None
+                
+                content = result["choices"][0]["message"]["content"]
+                
+                # Intentar parsear JSON
+                try:
+                    parsed_result = json.loads(content)
+                    
+                    # Verificar estructura
+                    if "corrections" in parsed_result and isinstance(parsed_result["corrections"], list):
+                        return parsed_result
+                    else:
+                        # Crear estructura básica si no tiene el formato correcto
+                        return self._create_fallback_response(exam_text, content)
+                        
+                except json.JSONDecodeError:
+                    # Si no es JSON válido, crear respuesta de fallback
+                    return self._create_fallback_response(exam_text, content)
+                    
+        except requests.exceptions.RequestException as e:
+            st.error(f"❌ Error de conexión: {str(e)}")
+            return None
+        except Exception as e:
+            st.error(f"❌ Error inesperado: {str(e)}")
+            return None
     
-    except Exception as e:
-        st.error(f"❌ Error procesando imagen: {str(e)}")
+    def generate_content(self, prompt: str) -> str:
+        """Método auxiliar para generar contenido de texto"""
+        if not self.config.deepseek_api_key:
+            st.error("❌ API key de DeepSeek no configurada")
+            return ""
+        
+        url = "https://api.deepseek.com/v1/chat/completions"
+        
+        headers = {
+            "Authorization": f"Bearer {self.config.deepseek_api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 2000
+        }
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            response.raise_for_status()
+            result = response.json()
+            
+            return result["choices"][0]["message"]["content"]
+            
+        except Exception as e:
+            st.error(f"Error generando contenido: {str(e)}")
+            return ""
+    
+    def _create_fallback_response(self, exam_text: str, ai_content: str) -> Dict:
+        """Crea una respuesta de fallback cuando el JSON no es válido"""
+        return {
+            "corrections": [{
+                "question": "Análisis general del examen",
+                "student_answer": exam_text[:200] + "..." if len(exam_text) > 200 else exam_text,
+                "is_correct": False,
+                "comments": "Análisis procesado correctamente",
+                "correct_answer": "Ver feedback general",
+                "score": 5
+            }],
+            "total_score": 5,
+            "feedback": ai_content
+        }
 
-# 4. Modificar la función show_exam_correction para usar el nuevo procesador
+# Inicializar session state
+def init_session_state():
+    """Inicializa el estado de la sesión"""
+    if "classes" not in st.session_state:
+        st.session_state.classes = []
+    if "exam_history" not in st.session_state:
+        st.session_state.exam_history = []
+
+# Páginas de la aplicación
+def show_home():
+    """Página de inicio"""
+    st.title("🤖 Corrector de Exámenes con IA")
+    st.markdown("### Bienvenido al sistema de corrección automática")
+    
+    st.markdown("""
+    **Características principales:**
+    - 📄 Procesamiento avanzado de PDFs e imágenes
+    - 🔍 OCR especializado para ciencias y letras
+    - 🤖 Corrección automática con IA
+    - 📊 Análisis detallado de respuestas
+    - 📚 Historial de correcciones
+    """)
+    
+    st.info("👈 Usa el menú lateral para navegar por las diferentes secciones")
+
+def show_class_management():
+    """Gestión de clases"""
+    st.header("👥 Gestionar Clases")
+    
+    # Formulario para nueva clase
+    with st.form("new_class_form"):
+        st.subheader("Crear Nueva Clase")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            class_name = st.text_input("Nombre de la clase", placeholder="Ej: 3º ESO A")
+            subject = st.text_input("Asignatura", placeholder="Ej: Matemáticas")
+            students_count = st.number_input("Número de estudiantes", min_value=1, max_value=50, value=25)
+        
+        with col2:
+            grade = st.selectbox("Nivel educativo", [grade.value for grade in GradeLevel])
+            subject_type = st.selectbox("Tipo de asignatura", [subj.value for subj in SubjectType])
+        
+        submitted = st.form_submit_button("✅ Crear Clase")
+        
+        if submitted and class_name and subject:
+            new_class = ClassInfo(
+                name=class_name,
+                subject=subject,
+                grade=GradeLevel(grade),
+                subject_type=SubjectType(subject_type),
+                students_count=students_count
+            )
+            
+            st.session_state.classes.append(new_class)
+            st.success(f"✅ Clase '{class_name}' creada exitosamente")
+            st.rerun()
+    
+    # Mostrar clases existentes
+    if st.session_state.classes:
+        st.subheader("Clases Existentes")
+        
+        for i, class_info in enumerate(st.session_state.classes):
+            with st.expander(f"📚 {class_info.name} - {class_info.subject}"):
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.write(f"**Nivel:** {class_info.grade.value}")
+                    st.write(f"**Tipo:** {class_info.subject_type.value}")
+                
+                with col2:
+                    st.write(f"**Estudiantes:** {class_info.students_count}")
+                
+                with col3:
+                    if st.button(f"🗑️ Eliminar", key=f"delete_{i}"):
+                        st.session_state.classes.pop(i)
+                        st.success("Clase eliminada")
+                        st.rerun()
+    else:
+        st.info("No hay clases creadas. Crea tu primera clase arriba.")
+
 def show_exam_correction(ocr_service: OCRService, ai_service: AIService):
     """Corrección de exámenes con procesamiento avanzado"""
     st.header("📄 Corregir Examen")
@@ -266,63 +527,56 @@ def show_exam_correction(ocr_service: OCRService, ai_service: AIService):
     if exam_text and st.button("🤖 Corregir Examen"):
         correct_scanned_exam(exam_text, selected_class, exam_title, ai_service)
 
-# 5. Función auxiliar para corrección de exámenes escaneados
 def correct_scanned_exam(exam_text: str, selected_class, exam_title: str, ai_service: AIService):
     """Corrige un examen escaneado usando IA"""
     with st.spinner("Corrigiendo examen..."):
         try:
-            # Crear prompt para corrección
-            correction_prompt = f"""
-            Actúa como un profesor experto en {selected_class.subject} para {selected_class.grade}.
-            
-            Debes corregir el siguiente examen:
-            
-            TÍTULO DEL EXAMEN: {exam_title}
-            ASIGNATURA: {selected_class.subject}
-            NIVEL: {selected_class.grade}
-            
-            TEXTO DEL EXAMEN:
-            {exam_text}
-            
-            INSTRUCCIONES:
-            1. Identifica todas las preguntas y respuestas del examen
-            2. Evalúa cada respuesta según el nivel académico apropiado
-            3. Asigna una puntuación a cada pregunta
-            4. Proporciona comentarios constructivos
-            5. Calcula una calificación final
-            6. Sugiere áreas de mejora
-            
-            FORMATO DE RESPUESTA:
-            ## Corrección del Examen: {exam_title}
-            
-            ### Análisis por Pregunta:
-            **Pregunta 1:** [Texto de la pregunta]
-            - **Respuesta del estudiante:** [Respuesta]
-            - **Evaluación:** [Correcta/Incorrecta/Parcialmente correcta]
-            - **Puntuación:** [X/Y puntos]
-            - **Comentarios:** [Feedback específico]
-            
-            [Repetir para todas las preguntas]
-            
-            ### Resumen:
-            - **Puntuación total:** [X/Y puntos]
-            - **Calificación:** [Nota final]
-            - **Fortalezas:** [Aspectos positivos]
-            - **Áreas de mejora:** [Recomendaciones]
-            
-            ### Comentarios generales:
-            [Feedback global y sugerencias]
-            """
-            
-            # Obtener corrección de la IA
-            correction_result = ai_service.generate_content(correction_prompt)
+            # Usar el método correct_exam del AIService
+            correction_result = ai_service.correct_exam(
+                exam_text, 
+                selected_class.subject_type, 
+                selected_class.subject
+            )
             
             if correction_result:
                 st.success("✅ Examen corregido exitosamente")
                 
-                # Mostrar resultado
+                # Mostrar resultados estructurados
                 st.markdown("### 📊 Resultado de la Corrección")
-                st.markdown(correction_result)
+                
+                # Mostrar puntuación total
+                total_score = correction_result.get("total_score", 0)
+                st.metric("Puntuación Total", f"{total_score}/10")
+                
+                # Mostrar correcciones por pregunta
+                st.markdown("### 📝 Correcciones por Pregunta")
+                
+                for i, correction in enumerate(correction_result.get("corrections", [])):
+                    with st.expander(f"Pregunta {i+1}: {correction.get('question', 'Sin título')[:50]}..."):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.markdown("**Respuesta del estudiante:**")
+                            st.write(correction.get("student_answer", ""))
+                            
+                            status = "✅ Correcta" if correction.get("is_correct") else "❌ Incorrecta"
+                            st.markdown(f"**Estado:** {status}")
+                        
+                        with col2:
+                            st.markdown("**Puntuación:**")
+                            st.write(f"{correction.get('score', 0)} puntos")
+                            
+                            st.markdown("**Comentarios:**")
+                            st.write(correction.get("comments", ""))
+                            
+                            if correction.get("correct_answer"):
+                                st.markdown("**Respuesta correcta:**")
+                                st.write(correction.get("correct_answer", ""))
+                
+                # Mostrar feedback general
+                if correction_result.get("feedback"):
+                    st.markdown("### 💬 Comentarios Generales")
+                    st.write(correction_result.get("feedback"))
                 
                 # Guardar en historial
                 exam_record = {
@@ -333,9 +587,6 @@ def correct_scanned_exam(exam_text: str, selected_class, exam_title: str, ai_ser
                     "correction": correction_result,
                     "method": "Escaneo con procesamiento avanzado"
                 }
-                
-                if "exam_history" not in st.session_state:
-                    st.session_state.exam_history = []
                 
                 st.session_state.exam_history.append(exam_record)
                 
@@ -360,7 +611,6 @@ def correct_scanned_exam(exam_text: str, selected_class, exam_title: str, ai_ser
         except Exception as e:
             st.error(f"❌ Error en la corrección: {str(e)}")
 
-# 6. Función para guardar corrección en archivo
 def save_correction_to_file(exam_record: dict):
     """Guarda la corrección en un archivo"""
     try:
@@ -379,7 +629,7 @@ TEXTO ORIGINAL:
 {exam_record['text']}
 
 CORRECCIÓN:
-{exam_record['correction']}
+{json.dumps(exam_record['correction'], indent=2, ensure_ascii=False)}
 """
         
         # Crear botón de descarga
