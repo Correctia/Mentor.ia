@@ -60,6 +60,415 @@ class APIConfig:
 class OCRService:
     def __init__(self, config: APIConfig):
         self.config = config
+
+    # Modificaciones para integrar en tu código principal
+
+# 1. Importar las nuevas clases al inicio del archivo
+from advanced_image_processor import AdvancedImageProcessor, preprocess_image, process_captured_image_enhanced
+
+# 2. Reemplazar la función preprocess_image existente
+def preprocess_image(image: Image.Image) -> bytes:
+    """Preprocesa la imagen para mejorar el OCR usando técnicas avanzadas"""
+    processor = AdvancedImageProcessor()
+    
+    # Convertir PIL Image a bytes
+    img_bytes = io.BytesIO()
+    image.save(img_bytes, format='PNG')
+    img_bytes = img_bytes.getvalue()
+    
+    # Procesar la imagen
+    processed_bytes = processor.preprocess_image_for_ocr(img_bytes)
+    
+    return processed_bytes
+
+# 3. Modificar la función process_captured_image para usar el nuevo procesador
+def process_captured_image(image_array, selected_class, exam_title, ocr_service, ai_service):
+    """Procesa la imagen capturada con procesamiento avanzado"""
+    try:
+        # Crear procesador avanzado
+        processor = AdvancedImageProcessor()
+        
+        # Convertir numpy array a bytes
+        image_rgb = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(image_rgb)
+        
+        img_bytes = io.BytesIO()
+        pil_image.save(img_bytes, format='PNG')
+        img_bytes = img_bytes.getvalue()
+        
+        # Mostrar imagen original
+        st.image(pil_image, caption="Imagen capturada (original)", use_column_width=True)
+        
+        # Procesar imagen con técnicas avanzadas
+        with st.spinner("Procesando imagen con técnicas avanzadas..."):
+            processed_bytes = processor.preprocess_image_for_ocr(img_bytes)
+            
+            # Mostrar imagen procesada
+            processed_image = Image.open(io.BytesIO(processed_bytes))
+            st.image(processed_image, caption="Imagen procesada", use_column_width=True)
+            
+            # Aplicar OCR según el tipo de asignatura
+            if selected_class.subject_type == SubjectType.SCIENCES:
+                exam_text = ocr_service.mathpix_ocr(processed_bytes)
+            else:
+                exam_text = ocr_service.google_vision_ocr(processed_bytes)
+            
+            if exam_text:
+                st.success("✅ Texto extraído exitosamente")
+                
+                # Mostrar texto extraído
+                with st.expander("Ver texto extraído"):
+                    st.text_area("Texto del examen", exam_text, height=200)
+                
+                # Corregir automáticamente
+                if st.button("🤖 Corregir Examen Escaneado"):
+                    correct_scanned_exam(exam_text, selected_class, exam_title, ai_service)
+            else:
+                st.error("❌ No se pudo extraer texto de la imagen")
+    
+    except Exception as e:
+        st.error(f"❌ Error procesando imagen: {str(e)}")
+
+# 4. Modificar la función show_exam_correction para usar el nuevo procesador
+def show_exam_correction(ocr_service: OCRService, ai_service: AIService):
+    """Corrección de exámenes con procesamiento avanzado"""
+    st.header("📄 Corregir Examen")
+    
+    if not st.session_state.classes:
+        st.warning("⚠️ Primero debes crear una clase en 'Gestionar Clases'")
+        return
+    
+    # Seleccionar clase
+    class_names = [f"{c.name} - {c.subject}" for c in st.session_state.classes]
+    selected_class_idx = st.selectbox("Selecciona una clase:", range(len(class_names)), 
+                                     format_func=lambda x: class_names[x])
+    
+    selected_class = st.session_state.classes[selected_class_idx]
+    
+    # Título del examen
+    exam_title = st.text_input("Título del examen", value=f"Examen {selected_class.subject}")
+    
+    # Métodos de entrada
+    st.subheader("📁 Método de entrada")
+    input_method = st.radio("Selecciona cómo quieres subir el examen:", 
+                           ["📄 Subir PDF", "🖼️ Subir imágenes", "✍️ Escribir texto"])
+    
+    exam_text = ""
+    
+    # Crear procesador avanzado
+    processor = AdvancedImageProcessor()
+    
+    if input_method == "📄 Subir PDF":
+        uploaded_pdf = st.file_uploader("Sube el PDF del examen", type=['pdf'])
+        
+        if uploaded_pdf:
+            with st.spinner("Procesando PDF..."):
+                try:
+                    # Convertir PDF a imágenes
+                    pdf_pages = convert_from_bytes(uploaded_pdf.read(), dpi=300)
+                    
+                    all_text = []
+                    for i, page in enumerate(pdf_pages):
+                        st.write(f"Procesando página {i+1}...")
+                        
+                        # Convertir página a bytes
+                        img_bytes = io.BytesIO()
+                        page.save(img_bytes, format='PNG')
+                        img_bytes = img_bytes.getvalue()
+                        
+                        # Procesar con técnicas avanzadas
+                        processed_bytes = processor.preprocess_image_for_ocr(img_bytes)
+                        
+                        # Mostrar imagen procesada
+                        processed_image = Image.open(io.BytesIO(processed_bytes))
+                        st.image(processed_image, caption=f"Página {i+1} procesada", use_column_width=True)
+                        
+                        # Extraer texto según tipo de asignatura
+                        if selected_class.subject_type == SubjectType.SCIENCES:
+                            page_text = ocr_service.mathpix_ocr(processed_bytes)
+                        else:
+                            page_text = ocr_service.google_vision_ocr(processed_bytes)
+                        
+                        if page_text:
+                            all_text.append(f"--- Página {i+1} ---\n{page_text}")
+                    
+                    exam_text = "\n\n".join(all_text)
+                    
+                    if exam_text:
+                        st.success("✅ PDF procesado exitosamente")
+                        with st.expander("Ver texto extraído del PDF"):
+                            st.text_area("Texto completo", exam_text, height=300)
+                    else:
+                        st.error("❌ No se pudo extraer texto del PDF")
+                        
+                except Exception as e:
+                    st.error(f"❌ Error procesando PDF: {str(e)}")
+    
+    elif input_method == "🖼️ Subir imágenes":
+        uploaded_images = st.file_uploader("Sube las imágenes del examen", 
+                                          type=['png', 'jpg', 'jpeg'], 
+                                          accept_multiple_files=True)
+        
+        if uploaded_images:
+            all_text = []
+            
+            for i, uploaded_image in enumerate(uploaded_images):
+                st.write(f"Procesando imagen {i+1}...")
+                
+                # Cargar imagen
+                image = Image.open(uploaded_image)
+                st.image(image, caption=f"Imagen {i+1} (original)", use_column_width=True)
+                
+                # Convertir a bytes
+                img_bytes = io.BytesIO()
+                image.save(img_bytes, format='PNG')
+                img_bytes = img_bytes.getvalue()
+                
+                with st.spinner(f"Procesando imagen {i+1} con técnicas avanzadas..."):
+                    try:
+                        # Procesar con técnicas avanzadas
+                        processed_bytes = processor.preprocess_image_for_ocr(img_bytes)
+                        
+                        # Mostrar imagen procesada
+                        processed_image = Image.open(io.BytesIO(processed_bytes))
+                        st.image(processed_image, caption=f"Imagen {i+1} procesada", use_column_width=True)
+                        
+                        # Extraer texto según tipo de asignatura
+                        if selected_class.subject_type == SubjectType.SCIENCES:
+                            image_text = ocr_service.mathpix_ocr(processed_bytes)
+                        else:
+                            image_text = ocr_service.google_vision_ocr(processed_bytes)
+                        
+                        if image_text:
+                            all_text.append(f"--- Imagen {i+1} ---\n{image_text}")
+                            st.success(f"✅ Imagen {i+1} procesada exitosamente")
+                        else:
+                            st.warning(f"⚠️ No se pudo extraer texto de la imagen {i+1}")
+                    
+                    except Exception as e:
+                        st.error(f"❌ Error procesando imagen {i+1}: {str(e)}")
+            
+            exam_text = "\n\n".join(all_text)
+            
+            if exam_text:
+                st.success("✅ Todas las imágenes procesadas")
+                with st.expander("Ver texto extraído de todas las imágenes"):
+                    st.text_area("Texto completo", exam_text, height=300)
+            else:
+                st.error("❌ No se pudo extraer texto de ninguna imagen")
+    
+    elif input_method == "✍️ Escribir texto":
+        exam_text = st.text_area("Escribe o pega el texto del examen:", 
+                                height=300, 
+                                placeholder="Pega aquí el texto del examen...")
+    
+    # Botón de corrección
+    if exam_text and st.button("🤖 Corregir Examen"):
+        correct_scanned_exam(exam_text, selected_class, exam_title, ai_service)
+
+# 5. Función auxiliar para corrección de exámenes escaneados
+def correct_scanned_exam(exam_text: str, selected_class, exam_title: str, ai_service: AIService):
+    """Corrige un examen escaneado usando IA"""
+    with st.spinner("Corrigiendo examen..."):
+        try:
+            # Crear prompt para corrección
+            correction_prompt = f"""
+            Actúa como un profesor experto en {selected_class.subject} para {selected_class.grade}.
+            
+            Debes corregir el siguiente examen:
+            
+            TÍTULO DEL EXAMEN: {exam_title}
+            ASIGNATURA: {selected_class.subject}
+            NIVEL: {selected_class.grade}
+            
+            TEXTO DEL EXAMEN:
+            {exam_text}
+            
+            INSTRUCCIONES:
+            1. Identifica todas las preguntas y respuestas del examen
+            2. Evalúa cada respuesta según el nivel académico apropiado
+            3. Asigna una puntuación a cada pregunta
+            4. Proporciona comentarios constructivos
+            5. Calcula una calificación final
+            6. Sugiere áreas de mejora
+            
+            FORMATO DE RESPUESTA:
+            ## Corrección del Examen: {exam_title}
+            
+            ### Análisis por Pregunta:
+            **Pregunta 1:** [Texto de la pregunta]
+            - **Respuesta del estudiante:** [Respuesta]
+            - **Evaluación:** [Correcta/Incorrecta/Parcialmente correcta]
+            - **Puntuación:** [X/Y puntos]
+            - **Comentarios:** [Feedback específico]
+            
+            [Repetir para todas las preguntas]
+            
+            ### Resumen:
+            - **Puntuación total:** [X/Y puntos]
+            - **Calificación:** [Nota final]
+            - **Fortalezas:** [Aspectos positivos]
+            - **Áreas de mejora:** [Recomendaciones]
+            
+            ### Comentarios generales:
+            [Feedback global y sugerencias]
+            """
+            
+            # Obtener corrección de la IA
+            correction_result = ai_service.generate_content(correction_prompt)
+            
+            if correction_result:
+                st.success("✅ Examen corregido exitosamente")
+                
+                # Mostrar resultado
+                st.markdown("### 📊 Resultado de la Corrección")
+                st.markdown(correction_result)
+                
+                # Guardar en historial
+                exam_record = {
+                    "title": exam_title,
+                    "class": f"{selected_class.name} - {selected_class.subject}",
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "text": exam_text,
+                    "correction": correction_result,
+                    "method": "Escaneo con procesamiento avanzado"
+                }
+                
+                if "exam_history" not in st.session_state:
+                    st.session_state.exam_history = []
+                
+                st.session_state.exam_history.append(exam_record)
+                
+                # Opciones adicionales
+                st.markdown("### 📋 Acciones adicionales")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if st.button("💾 Guardar corrección"):
+                        save_correction_to_file(exam_record)
+                
+                with col2:
+                    if st.button("📧 Enviar por email"):
+                        st.info("Función de email próximamente disponible")
+                
+                with col3:
+                    if st.button("🔄 Corregir otro examen"):
+                        st.rerun()
+            else:
+                st.error("❌ Error al corregir el examen")
+        
+        except Exception as e:
+            st.error(f"❌ Error en la corrección: {str(e)}")
+
+# 6. Función para guardar corrección en archivo
+def save_correction_to_file(exam_record: dict):
+    """Guarda la corrección en un archivo"""
+    try:
+        filename = f"correccion_{exam_record['title'].replace(' ', '_')}_{exam_record['date'][:10]}.txt"
+        
+        content = f"""
+CORRECCIÓN DE EXAMEN
+===================
+
+Título: {exam_record['title']}
+Clase: {exam_record['class']}
+Fecha: {exam_record['date']}
+Método: {exam_record['method']}
+
+TEXTO ORIGINAL:
+{exam_record['text']}
+
+CORRECCIÓN:
+{exam_record['correction']}
+"""
+        
+        # Crear botón de descarga
+        st.download_button(
+            label="⬇️ Descargar corrección",
+            data=content,
+            file_name=filename,
+            mime="text/plain"
+        )
+        
+        st.success(f"✅ Corrección guardada como: {filename}")
+    
+    except Exception as e:
+        st.error(f"❌ Error guardando archivo: {str(e)}")
+
+# 7. Función para mostrar historial de exámenes
+def show_exam_history():
+    """Muestra el historial de exámenes corregidos"""
+    st.header("📚 Historial de Exámenes")
+    
+    if "exam_history" not in st.session_state or not st.session_state.exam_history:
+        st.info("No hay exámenes en el historial")
+        return
+    
+    # Mostrar exámenes
+    for i, exam in enumerate(reversed(st.session_state.exam_history)):
+        with st.expander(f"📄 {exam['title']} - {exam['date']}"):
+            st.write(f"**Clase:** {exam['class']}")
+            st.write(f"**Método:** {exam['method']}")
+            st.write(f"**Fecha:** {exam['date']}")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**Texto original:**")
+                st.text_area("", exam['text'], height=200, key=f"text_{i}")
+            
+            with col2:
+                st.markdown("**Corrección:**")
+                st.markdown(exam['correction'])
+            
+            # Botón para guardar
+            if st.button(f"💾 Guardar corrección", key=f"save_{i}"):
+                save_correction_to_file(exam)
+    
+    # Botón para limpiar historial
+    if st.button("🗑️ Limpiar historial"):
+        st.session_state.exam_history = []
+        st.success("✅ Historial limpiado")
+        st.rerun()
+
+# 8. Función principal modificada para incluir las nuevas funcionalidades
+def main():
+    """Función principal de la aplicación"""
+    st.set_page_config(
+        page_title="Corrector de Exámenes con IA",
+        page_icon="🤖",
+        layout="wide"
+    )
+    
+    # Inicializar servicios
+    ocr_service = OCRService()
+    ai_service = AIService()
+    
+    # Sidebar para navegación
+    with st.sidebar:
+        st.title("🎯 Navegación")
+        page = st.radio("Selecciona una página:", [
+            "🏠 Inicio",
+            "👥 Gestionar Clases", 
+            "📄 Corregir Examen",
+            "📚 Historial",
+            "⚙️ Configuración"
+        ])
+    
+    # Mostrar página seleccionada
+    if page == "🏠 Inicio":
+        show_home()
+    elif page == "👥 Gestionar Clases":
+        show_class_management()
+    elif page == "📄 Corregir Examen":
+        show_exam_correction(ocr_service, ai_service)
+    elif page == "📚 Historial":
+        show_exam_history()
+    elif page == "⚙️ Configuración":
+        show_settings()
+
+if __name__ == "__main__":
+    main()
     
     def google_vision_ocr(self, image_data: bytes) -> str:
         """OCR usando Google Vision API para asignaturas de letras"""
