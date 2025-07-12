@@ -347,9 +347,9 @@ def main():
     st.sidebar.title("🎓 Navegación")
     
     # Verificar configuración de APIs
-    if not all([config.deepseek_api_key, config.google_vision_api_key, config.mathpix_app_id, config.mathpix_app_key]):
+    if not all([config.deepseek_api_key, config.google_vision_api_key,]):
         st.error("⚠️ Configuración de APIs incompleta. Asegúrate de configurar todas las claves API en los secrets.")
-        st.info("Necesitas configurar: DEEPSEEK_API_KEY, GOOGLE_VISION_API_KEY, MATHPIX_APP_ID, MATHPIX_APP_KEY")
+        st.info("Necesitas configurar: DEEPSEEK_API_KEY, GOOGLE_VISION_API_KEY")
         return
     
     # Menú de navegación
