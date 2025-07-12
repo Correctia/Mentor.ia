@@ -130,7 +130,6 @@ class OCRService:
         url = f"https://vision.googleapis.com/v1/images:annotate?key={self.config.google_vision_api_key}"
         
         image_b64 = base64.b64encode(image_data).decode()
-        
         payload = {
             "requests": [{
                 "image": {"content": image_b64},
