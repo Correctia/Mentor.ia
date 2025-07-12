@@ -1,1234 +1,1189 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Corrector de Exámenes con IA</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-            overflow: hidden;
-        }
-        
-        .header {
-            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-        }
-        
-        .header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        }
-        
-        .header p {
-            font-size: 1.1rem;
-            opacity: 0.9;
-        }
-        
-        .nav-tabs {
-            display: flex;
-            background: #f8f9fa;
-            border-bottom: 1px solid #dee2e6;
-        }
-        
-        .nav-tab {
-            flex: 1;
-            padding: 15px 20px;
-            text-align: center;
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: 500;
-            color: #6c757d;
-            transition: all 0.3s ease;
-        }
-        
-        .nav-tab.active {
-            background: white;
-            color: #495057;
-            border-bottom: 3px solid #007bff;
-        }
-        
-        .nav-tab:hover {
-            background: #e9ecef;
-            color: #495057;
-        }
-        
-        .tab-content {
-            padding: 30px;
-        }
-        
-        .tab-pane {
-            display: none;
-        }
-        
-        .tab-pane.active {
-            display: block;
-        }
-        
-        .form-group {
-            margin-bottom: 25px;
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #495057;
-        }
-        
-        .form-control {
-            width: 100%;
-            padding: 12px 16px;
-            border: 2px solid #e9ecef;
-            border-radius: 10px;
-            font-size: 1rem;
-            transition: border-color 0.3s ease;
-        }
-        
-        .form-control:focus {
-            outline: none;
-            border-color: #007bff;
-            box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
-        }
-        
-        .btn {
-            padding: 12px 30px;
-            border: none;
-            border-radius: 10px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            display: inline-block;
-            text-align: center;
-        }
-        
-        .btn-primary {
-            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-            color: white;
-        }
-        
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0,123,255,0.4);
-        }
-        
-        .btn-success {
-            background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
-            color: white;
-        }
-        
-        .btn-success:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(40,167,69,0.4);
-        }
-        
-        .btn-warning {
-            background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
-            color: #212529;
-        }
-        
-        .btn-warning:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(255,193,7,0.4);
-        }
-        
-        .file-upload {
-            border: 2px dashed #007bff;
-            border-radius: 10px;
-            padding: 40px;
-            text-align: center;
-            background: #f8f9ff;
-            transition: all 0.3s ease;
-        }
-        
-        .file-upload:hover {
-            background: #e6f3ff;
-            border-color: #0056b3;
-        }
-        
-        .file-upload.dragover {
-            background: #cce7ff;
-            border-color: #0056b3;
-        }
-        
-        .camera-section {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        
-        .camera-controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }
-        
-        .camera-preview {
-            width: 100%;
-            max-width: 500px;
-            border-radius: 10px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-        }
-        
-        .loading {
-            display: none;
-            text-align: center;
-            padding: 40px;
-        }
-        
-        .loading.active {
-            display: block;
-        }
-        
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #007bff;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        .classes-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 20px;
-            margin-top: 20px;
-        }
-        
-        .class-card {
-            background: white;
-            border: 2px solid #e9ecef;
-            border-radius: 15px;
-            padding: 20px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            transition: transform 0.3s ease;
-        }
-        
-        .class-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
-        }
-        
-        .class-card h3 {
-            color: #495057;
-            margin-bottom: 10px;
-        }
-        
-        .class-card p {
-            color: #6c757d;
-            margin-bottom: 15px;
-        }
-        
-        .exam-item {
-            background: #f8f9fa;
-            border-radius: 8px;
-            padding: 10px;
-            margin-bottom: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .results-section {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 20px;
-            margin-top: 20px;
-        }
-        
-        .correction-item {
-            background: white;
-            border-left: 4px solid #dc3545;
-            padding: 15px;
-            margin-bottom: 15px;
-            border-radius: 5px;
-        }
-        
-        .correction-item.correct {
-            border-left-color: #28a745;
-        }
-        
-        .hidden {
-            display: none;
-        }
-        
-        .alert {
-            padding: 15px;
-            margin-bottom: 20px;
-            border-radius: 10px;
-            border: 1px solid transparent;
-        }
-        
-        .alert-success {
-            color: #155724;
-            background-color: #d4edda;
-            border-color: #c3e6cb;
-        }
-        
-        .alert-error {
-            color: #721c24;
-            background-color: #f8d7da;
-            border-color: #f5c6cb;
-        }
-        
-        .alert-info {
-            color: #0c5460;
-            background-color: #d1ecf1;
-            border-color: #bee5eb;
-        }
-        
-        .progress-bar {
-            width: 100%;
-            height: 20px;
-            background: #e9ecef;
-            border-radius: 10px;
-            overflow: hidden;
-            margin-bottom: 20px;
-        }
-        
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #007bff 0%, #0056b3 100%);
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-        
-        @media (max-width: 768px) {
-            .nav-tabs {
-                flex-direction: column;
-            }
-            
-            .camera-controls {
-                flex-direction: column;
-            }
-            
-            .classes-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>📝 Corrector de Exámenes con IA</h1>
-            <p>Corrección automática inteligente para asignaturas de letras y ciencias</p>
-        </div>
-        
-        <div class="nav-tabs">
-            <button class="nav-tab active" onclick="showTab('upload')">📁 Subir Examen</button>
-            <button class="nav-tab" onclick="showTab('camera')">📷 Escanear</button>
-            <button class="nav-tab" onclick="showTab('classes')">🎓 Mis Clases</button>
-            <button class="nav-tab" onclick="showTab('results')">📊 Resultados</button>
-        </div>
-        
-        <div class="tab-content">
-            <!-- Pestaña de Subir Examen -->
-            <div id="upload" class="tab-pane active">
-                <h2>📁 Subir Examen</h2>
-                
-                <div class="form-group">
-                    <label for="examSubject">Asignatura</label>
-                    <select id="examSubject" class="form-control">
-                        <option value="">Selecciona una asignatura</option>
-                        <option value="letras">📚 Letras (Lengua, Historia, Filosofía, etc.)</option>
-                        <option value="ciencias">🔬 Ciencias (Matemáticas, Física, Química, etc.)</option>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="examClass">Clase</label>
-                    <select id="examClass" class="form-control">
-                        <option value="">Selecciona una clase</option>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="examTitle">Título del Examen</label>
-                    <input type="text" id="examTitle" class="form-control" placeholder="Ej: Examen de Matemáticas - Tema 5">
-                </div>
-                
-                <div class="form-group">
-                    <label for="rubric">Criterios de Corrección (Opcional)</label>
-                    <textarea id="rubric" class="form-control" rows="4" placeholder="Especifica los criterios de corrección, puntuación por pregunta, etc."></textarea>
-                </div>
-                
-                <div class="file-upload" id="fileUpload">
-                    <div>
-                        <h3>📎 Arrastra y suelta archivos aquí</h3>
-                        <p>o haz clic para seleccionar</p>
-                        <p><small>Formatos soportados: PDF, JPG, PNG, JPEG</small></p>
-                    </div>
-                    <input type="file" id="fileInput" multiple accept=".pdf,.jpg,.jpeg,.png" style="display: none;">
-                </div>
-                
-                <div id="fileList" class="hidden">
-                    <h4>Archivos seleccionados:</h4>
-                    <ul id="selectedFiles"></ul>
-                </div>
-                
-                <div class="form-group">
-                    <button id="processExam" class="btn btn-primary" onclick="processExam()">🚀 Procesar Examen</button>
-                </div>
-            </div>
-            
-            <!-- Pestaña de Cámara -->
-            <div id="camera" class="tab-pane">
-                <h2>📷 Escanear Examen</h2>
-                
-                <div class="camera-section">
-                    <div class="camera-controls">
-                        <button id="startCamera" class="btn btn-primary" onclick="startCamera()">📹 Iniciar Cámara</button>
-                        <button id="capturePhoto" class="btn btn-success hidden" onclick="capturePhoto()">📸 Capturar</button>
-                        <button id="stopCamera" class="btn btn-warning hidden" onclick="stopCamera()">⏹️ Detener</button>
-                    </div>
-                    
-                    <div id="cameraContainer" class="hidden">
-                        <video id="videoElement" class="camera-preview" autoplay></video>
-                        <canvas id="canvasElement" class="camera-preview hidden"></canvas>
-                    </div>
-                </div>
-                
-                <div id="capturedImages" class="hidden">
-                    <h4>Imágenes capturadas:</h4>
-                    <div id="imageGallery"></div>
-                    <button class="btn btn-primary" onclick="processScannedImages()">🔍 Procesar Imágenes</button>
-                </div>
-            </div>
-            
-            <!-- Pestaña de Clases -->
-            <div id="classes" class="tab-pane">
-                <h2>🎓 Gestión de Clases</h2>
-                
-                <div class="form-group">
-                    <button class="btn btn-primary" onclick="showCreateClassForm()">➕ Crear Nueva Clase</button>
-                </div>
-                
-                <div id="createClassForm" class="hidden">
-                    <h3>Crear Nueva Clase</h3>
-                    <div class="form-group">
-                        <label for="className">Nombre de la Clase</label>
-                        <input type="text" id="className" class="form-control" placeholder="Ej: Matemáticas 1º ESO">
-                    </div>
-                    <div class="form-group">
-                        <label for="classDescription">Descripción</label>
-                        <textarea id="classDescription" class="form-control" rows="3" placeholder="Descripción de la clase"></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label for="classSubject">Tipo de Asignatura</label>
-                        <select id="classSubject" class="form-control">
-                            <option value="letras">📚 Letras</option>
-                            <option value="ciencias">🔬 Ciencias</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <button class="btn btn-success" onclick="createClass()">✅ Crear Clase</button>
-                        <button class="btn btn-warning" onclick="hideCreateClassForm()">❌ Cancelar</button>
-                    </div>
-                </div>
-                
-                <div id="classesContainer" class="classes-grid">
-                    <!-- Las clases se cargarán aquí dinámicamente -->
-                </div>
-            </div>
-            
-            <!-- Pestaña de Resultados -->
-            <div id="results" class="tab-pane">
-                <h2>📊 Resultados de Corrección</h2>
-                
-                <div id="resultsContainer">
-                    <div class="alert alert-info">
-                        <p>📋 Aquí aparecerán los resultados de la corrección una vez que proceses un examen.</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Loading overlay -->
-        <div id="loadingOverlay" class="loading">
-            <div class="spinner"></div>
-            <h3>Procesando examen...</h3>
-            <p id="loadingMessage">Inicializando...</p>
-            <div class="progress-bar">
-                <div id="progressFill" class="progress-fill"></div>
-            </div>
-        </div>
-    </div>
+import os
+import io
+import json
+import base64
+import requests
+from datetime import datetime
+from typing import List, Dict, Optional, Tuple
+from dataclasses import dataclass
+from enum import Enum
 
-    <script>
-        // Variables globales
-        let currentStream = null;
-        let capturedImages = [];
-        let classes = JSON.parse(localStorage.getItem('examClasses')) || [];
-        let examResults = JSON.parse(localStorage.getItem('examResults')) || [];
+import streamlit as st
+import pandas as pd
+from PIL import Image, ImageDraw, ImageFont
+import fitz  # PyMuPDF
+import cv2
+import numpy as np
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
+import av
+
+# Configuración de la página
+st.set_page_config(
+    page_title="Corrector de Exámenes IA",
+    page_icon="📝",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Enumeraciones y clases de datos
+class SubjectType(Enum):
+    LETTERS = "letras"
+    SCIENCES = "ciencias"
+
+@dataclass
+class ExamClass:
+    id: str
+    name: str
+    subject: str
+    subject_type: SubjectType
+    teacher_name: str
+    created_at: datetime
+
+@dataclass
+class Exam:
+    id: str
+    class_id: str
+    title: str
+    content: str
+    corrections: List[Dict]
+    grade: float
+    created_at: datetime
+    corrected_at: Optional[datetime] = None
+
+# Configuración de APIs
+class APIConfig:
+    def __init__(self):
+        self.deepseek_api_key = st.secrets.get("DEEPSEEK_API_KEY", "")
+        self.google_vision_api_key = st.secrets.get("GOOGLE_VISION_API_KEY", "")
+        self.mathpix_app_id = st.secrets.get("MATHPIX_APP_ID", "")
+        self.mathpix_app_key = st.secrets.get("MATHPIX_APP_KEY", "")
+
+# Servicios de OCR
+class OCRService:
+    def __init__(self, config: APIConfig):
+        self.config = config
+    
+    def google_vision_ocr(self, image_data: bytes) -> str:
+        """OCR usando Google Vision API para asignaturas de letras"""
+        url = f"https://vision.googleapis.com/v1/images:annotate?key={self.config.google_vision_api_key}"
         
-        // Configuración de APIs (en producción, esto debería estar en el servidor)
-        const API_CONFIG = {
-            deepseek: {
-                baseUrl: 'https://api.deepseek.com/v1',
-                apiKey: 'sk-42d24fd956db4146b24782e33879b6ad' // Reemplazar con tu clave real
-            },
-            googleVision: {
-                apiKey: 'AIzaSyAyGT7uDH5Feaqtc27fcF7ArgkrRO8jU0Q' // Reemplazar con tu clave real
-            },
-            mathpix: {
-                appId: 'YOUR_MATHPIX_APP_ID', // Reemplazar con tu app ID
-                appKey: 'YOUR_MATHPIX_APP_KEY' // Reemplazar con tu clave real
-            }
-        };
+        image_b64 = base64.b64encode(image_data).decode()
         
-        // Inicialización
-        document.addEventListener('DOMContentLoaded', function() {
-            loadClasses();
-            updateClassSelect();
-            setupFileUpload();
-            loadResults();
-        });
-        
-        // Gestión de pestañas
-        function showTab(tabName) {
-            // Ocultar todas las pestañas
-            document.querySelectorAll('.tab-pane').forEach(pane => {
-                pane.classList.remove('active');
-            });
-            
-            // Desactivar todos los botones
-            document.querySelectorAll('.nav-tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            
-            // Mostrar la pestaña seleccionada
-            document.getElementById(tabName).classList.add('active');
-            event.target.classList.add('active');
+        payload = {
+            "requests": [{
+                "image": {"content": image_b64},
+                "features": [{
+                    "type": "TEXT_DETECTION",
+                    "maxResults": 1
+                }]
+            }]
         }
         
-        // Configuración de carga de archivos
-        function setupFileUpload() {
-            const fileUpload = document.getElementById('fileUpload');
-            const fileInput = document.getElementById('fileInput');
+        try:
+            response = requests.post(url, json=payload)
+            response.raise_for_status()
+            result = response.json()
             
-            fileUpload.addEventListener('click', () => fileInput.click());
-            fileUpload.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                fileUpload.classList.add('dragover');
-            });
-            fileUpload.addEventListener('dragleave', () => {
-                fileUpload.classList.remove('dragover');
-            });
-            fileUpload.addEventListener('drop', (e) => {
-                e.preventDefault();
-                fileUpload.classList.remove('dragover');
-                handleFiles(e.dataTransfer.files);
-            });
-            
-            fileInput.addEventListener('change', (e) => {
-                handleFiles(e.target.files);
-            });
+            if "responses" in result and result["responses"]:
+                annotations = result["responses"][0].get("textAnnotations", [])
+                if annotations:
+                    return annotations[0]["description"]
+            return ""
+        except Exception as e:
+            st.error(f"Error en Google Vision OCR: {str(e)}")
+            return ""
+    
+    def mathpix_ocr(self, image_data: bytes) -> str:
+        """OCR usando Mathpix para asignaturas de ciencias"""
+        url = "https://api.mathpix.com/v3/text"
+        
+        headers = {
+            "app_id": self.config.mathpix_app_id,
+            "app_key": self.config.mathpix_app_key,
+            "Content-Type": "application/json"
         }
         
-        function handleFiles(files) {
-            const fileList = document.getElementById('fileList');
-            const selectedFiles = document.getElementById('selectedFiles');
-            
-            selectedFiles.innerHTML = '';
-            
-            Array.from(files).forEach(file => {
-                const li = document.createElement('li');
-                li.textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
-                selectedFiles.appendChild(li);
-            });
-            
-            fileList.classList.remove('hidden');
-        }
+        image_b64 = base64.b64encode(image_data).decode()
         
-        // Funciones de cámara
-        function startCamera() {
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-                .then(stream => {
-                    currentStream = stream;
-                    const video = document.getElementById('videoElement');
-                    video.srcObject = stream;
-                    
-                    document.getElementById('cameraContainer').classList.remove('hidden');
-                    document.getElementById('startCamera').classList.add('hidden');
-                    document.getElementById('capturePhoto').classList.remove('hidden');
-                    document.getElementById('stopCamera').classList.remove('hidden');
-                })
-                .catch(err => {
-                    showAlert('Error al acceder a la cámara: ' + err.message, 'error');
-                });
-        }
-        
-        function capturePhoto() {
-            const video = document.getElementById('videoElement');
-            const canvas = document.getElementById('canvasElement');
-            const context = canvas.getContext('2d');
-            
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            context.drawImage(video, 0, 0);
-            
-            const imageData = canvas.toDataURL('image/jpeg');
-            capturedImages.push(imageData);
-            
-            updateImageGallery();
-            showAlert('Imagen capturada correctamente', 'success');
-        }
-        
-        function stopCamera() {
-            if (currentStream) {
-                currentStream.getTracks().forEach(track => track.stop());
-                currentStream = null;
-            }
-            
-            document.getElementById('cameraContainer').classList.add('hidden');
-            document.getElementById('startCamera').classList.remove('hidden');
-            document.getElementById('capturePhoto').classList.add('hidden');
-            document.getElementById('stopCamera').classList.add('hidden');
-        }
-        
-        function updateImageGallery() {
-            const gallery = document.getElementById('imageGallery');
-            gallery.innerHTML = '';
-            
-            capturedImages.forEach((imageData, index) => {
-                const img = document.createElement('img');
-                img.src = imageData;
-                img.style.width = '150px';
-                img.style.height = '200px';
-                img.style.objectFit = 'cover';
-                img.style.margin = '5px';
-                img.style.borderRadius = '5px';
-                gallery.appendChild(img);
-            });
-            
-            if (capturedImages.length > 0) {
-                document.getElementById('capturedImages').classList.remove('hidden');
+        payload = {
+            "src": f"data:image/jpeg;base64,{image_b64}",
+            "formats": ["text", "latex_styled"],
+            "data_options": {
+                "include_asciimath": True,
+                "include_latex": True
             }
         }
         
-        // Gestión de clases
-        function showCreateClassForm() {
-            document.getElementById('createClassForm').classList.remove('hidden');
+        try:
+            response = requests.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+            return result.get("text", "")
+        except Exception as e:
+            st.error(f"Error en Mathpix OCR: {str(e)}")
+            return ""
+
+# Servicio de IA para corrección
+class AIService:
+    def __init__(self, config: APIConfig):
+        self.config = config
+    
+    def correct_exam(self, exam_text: str, subject_type: SubjectType, subject_name: str) -> Dict:
+        """Corrige el examen usando DeepSeek"""
+        url = "https://api.deepseek.com/v1/chat/completions"
+        
+        headers = {
+            "Authorization": f"Bearer {self.config.deepseek_api_key}",
+            "Content-Type": "application/json"
         }
         
-        function hideCreateClassForm() {
-            document.getElementById('createClassForm').classList.add('hidden');
-        }
-        
-        function createClass() {
-            const name = document.getElementById('className').value;
-            const description = document.getElementById('classDescription').value;
-            const subject = document.getElementById('classSubject').value;
+        if subject_type == SubjectType.SCIENCES:
+            system_prompt = f"""Eres un profesor experto en {subject_name} (asignatura de ciencias). 
+            Analiza el siguiente examen y proporciona correcciones detalladas.
             
-            if (!name.trim()) {
-                showAlert('El nombre de la clase es obligatorio', 'error');
-                return;
-            }
+            Para cada pregunta identifica:
+            1. La pregunta original
+            2. La respuesta del estudiante
+            3. Si la respuesta es correcta o incorrecta
+            4. Comentarios específicos sobre errores
+            5. La respuesta correcta si es necesaria
+            6. Puntuación sugerida
             
-            const newClass = {
-                id: Date.now(),
-                name,
-                description,
-                subject,
-                exams: [],
-                createdAt: new Date().toISOString()
-            };
-            
-            classes.push(newClass);
-            localStorage.setItem('examClasses', JSON.stringify(classes));
-            
-            loadClasses();
-            updateClassSelect();
-            hideCreateClassForm();
-            
-            // Limpiar formulario
-            document.getElementById('className').value = '';
-            document.getElementById('classDescription').value = '';
-            
-            showAlert('Clase creada correctamente', 'success');
-        }
-        
-        function loadClasses() {
-            const container = document.getElementById('classesContainer');
-            container.innerHTML = '';
-            
-            if (classes.length === 0) {
-                container.innerHTML = '<div class="alert alert-info">No hay clases creadas aún. Crea tu primera clase para empezar.</div>';
-                return;
-            }
-            
-            classes.forEach(cls => {
-                const card = document.createElement('div');
-                card.className = 'class-card';
-                card.innerHTML = `
-                    <h3>${cls.subject === 'letras' ? '📚' : '🔬'} ${cls.name}</h3>
-                    <p>${cls.description || 'Sin descripción'}</p>
-                    <div class="exam-stats">
-                        <small>Exámenes: ${cls.exams.length}</small>
-                    </div>
-                    <div style="margin-top: 15px;">
-                        <button class="btn btn-primary" onclick="viewClass(${cls.id})">👁️ Ver</button>
-                        <button class="btn btn-warning" onclick="deleteClass(${cls.id})">🗑️ Eliminar</button>
-                    </div>
-                `;
-                container.appendChild(card);
-            });
-        }
-        
-        function updateClassSelect() {
-            const select = document.getElementById('examClass');
-            select.innerHTML = '<option value="">Selecciona una clase</option>';
-            
-            classes.forEach(cls => {
-                const option = document.createElement('option');
-                option.value = cls.id;
-                option.textContent = `${cls.subject === 'letras' ? '📚' : '🔬'} ${cls.name}`;
-                select.appendChild(option);
-            });
-        }
-        
-        function viewClass(classId) {
-            const cls = classes.find(c => c.id === classId);
-            if (!cls) return;
-            
-            // Aquí puedes implementar la vista detallada de la clase
-            showAlert(`Viendo clase: ${cls.name}`, 'info');
-        }
-        
-        function deleteClass(classId) {
-            if (confirm('¿Estás seguro de que quieres eliminar esta clase?')) {
-                classes = classes.filter(c => c.id !== classId);
-                localStorage.setItem('examClasses', JSON.stringify(classes));
-                loadClasses();
-                updateClassSelect();
-                showAlert('Clase eliminada correctamente', 'success');
-            }
-        }
-        
-        // Procesamiento de exámenes
-        async function processExam() {
-            const subject = document.getElementById('examSubject').value;
-            const classId = document.getElementById('examClass').value;
-            const title = document.getElementById('examTitle').value;
-            const rubric = document.getElementById('rubric').value;
-            const fileInput = document.getElementById('fileInput');
-            
-            if (!subject || !title || !fileInput.files.length) {
-                showAlert('Por favor, completa todos los campos obligatorios y selecciona al menos un archivo', 'error');
-                return;
-            }
-            
-            showLoading();
-            
-            try {
-                // Simular procesamiento
-                await simulateProcessing();
-                
-                // Aquí implementarías la lógica real de procesamiento
-                const result = await processExamFiles(fileInput.files, subject, rubric);
-                
-                // Guardar resultado
-                const examResult = {
-                    id: Date.now(),
-                    title,
-                    subject,
-                    classId,
-                    corrections: result.corrections,
-                    score: result.score,
-                    processedAt: new Date().toISOString(),
-                    pdfUrl: result.pdfUrl
-                };
-                
-                examResults.push(examResult);
-                localStorage.setItem('examResults', JSON.stringify(examResults));
-                
-                // Añadir a la clase si se seleccionó una
-                if (classId) {
-                    const cls = classes.find(c => c.id == classId);
-                    if (cls) {
-                        cls.exams.push(examResult.id);
-                        localStorage.setItem('examClasses', JSON.stringify(classes));
-                    }
-                }
-                
-                hideLoading();
-                showResults(examResult);
-                showTab('results');
-                
-            } catch (error) {
-                hideLoading();
-                showAlert('Error al procesar el examen: ' + error.message, 'error');
-            }
-        }
-        
-        async function processScannedImages() {
-            if (capturedImages.length === 0) {
-                showAlert('No hay imágenes capturadas para procesar', 'error');
-                return;
-            }
-            
-            showLoading();
-            
-            try {
-                // Simular procesamiento
-                await simulateProcessing();
-                
-                // Aquí implementarías la lógica real de procesamiento de imágenes
-                const result = await processImages(capturedImages);
-                
-                hideLoading();
-                showAlert('Imágenes procesadas correctamente', 'success');
-                
-            } catch (error) {
-                hideLoading();
-                showAlert('Error al procesar las imágenes: ' + error.message, 'error');
-            }
-        }
-        
-        // Funciones auxiliares de procesamiento
-        async function processExamFiles(files, subject, rubric) {
-            const corrections = [];
-            let totalScore = 0;
-            
-            for (const file of files) {
-                if (file.type === 'application/pdf') {
-                    // Procesar PDF
-                    const text = await extractTextFromPDF(file);
-                    const ocrResult = await performOCR(text, subject);
-                    const correction = await correctWithAI(ocrResult, subject, rubric);
-                    corrections.push(correction);
-                }
-                totalScore += correction.score;
-            }
-            
-            // Generar PDF corregido
-            const pdfUrl = await generateCorrectedPDF(corrections);
-            
-            return {
-                corrections,
-                score: totalScore / corrections.length,
-                pdfUrl
-            };
-        }
-        
-        async function extractTextFromPDF(file) {
-            // Simulación de extracción de texto de PDF
-            // En producción, usarías una librería como PDF.js o pdf2pic + OCR
-            return "Texto extraído del PDF simulado";
-        }
-        
-        async function performOCR(text, subject) {
-            // Determinar qué OCR usar según la asignatura
-            if (subject === 'letras') {
-                return await googleVisionOCR(text);
-            } else {
-                return await mathpixOCR(text);
-            }
-        }
-        
-        async function performOCROnImage(file, subject) {
-            const base64 = await fileToBase64(file);
-            
-            if (subject === 'letras') {
-                return await googleVisionOCR(base64);
-            } else {
-                return await mathpixOCR(base64);
-            }
-        }
-        
-        async function googleVisionOCR(imageData) {
-            // Simulación de Google Vision API
-            // En producción, harías una llamada real a la API
-            return {
-                text: "Texto extraído con Google Vision (simulado)",
-                confidence: 0.95
-            };
-        }
-        
-        async function mathpixOCR(imageData) {
-            // Simulación de Mathpix API
-            // En producción, harías una llamada real a la API
-            return {
-                text: "Ecuaciones y texto matemático extraído con Mathpix (simulado)",
-                latex: "\\int_{0}^{1} x^2 dx = \\frac{1}{3}",
-                confidence: 0.92
-            };
-        }
-        
-        async function correctWithAI(ocrResult, subject, rubric) {
-            // Simulación de corrección con DeepSeek
-            // En producción, harías una llamada real a la API de DeepSeek
-            
-            const prompt = `
-                Corrige el siguiente examen de ${subject}:
-                
-                Texto del examen:
-                ${ocrResult.text}
-                
-                Criterios de corrección:
-                ${rubric || 'Criterios estándar'}
-                
-                Por favor, proporciona:
-                1. Respuestas correctas
-                2. Errores identificados
-                3. Puntuación
-                4. Comentarios de mejora
-            `;
-            
-            // Simulación de respuesta de IA
-            return {
-                originalText: ocrResult.text,
-                errors: [
+            Devuelve la respuesta en formato JSON con esta estructura:
+            {
+                "corrections": [
                     {
-                        question: "Pregunta 1",
-                        studentAnswer: "Respuesta incorrecta del estudiante",
-                        correctAnswer: "Respuesta correcta",
-                        feedback: "La respuesta no es correcta porque...",
-                        points: 0,
-                        maxPoints: 2
-                    },
-                    {
-                        question: "Pregunta 2", 
-                        studentAnswer: "Respuesta parcialmente correcta",
-                        correctAnswer: "Respuesta completa correcta",
-                        feedback: "La respuesta está bien encaminada pero falta...",
-                        points: 1,
-                        maxPoints: 2
+                        "question": "pregunta",
+                        "student_answer": "respuesta del estudiante",
+                        "is_correct": true/false,
+                        "comments": "comentarios específicos",
+                        "correct_answer": "respuesta correcta",
+                        "score": puntuación
                     }
                 ],
-                score: 7.5,
-                maxScore: 10,
-                generalFeedback: "El estudiante muestra comprensión básica pero necesita mejorar en..."
-            };
+                "total_score": puntuación_total,
+                "feedback": "comentarios generales"
+            }"""
+        else:
+            system_prompt = f"""Eres un profesor experto en {subject_name} (asignatura de letras). 
+            Analiza el siguiente examen y proporciona correcciones detalladas.
+            
+            Para cada pregunta evalúa:
+            1. Comprensión del tema
+            2. Calidad de la argumentación
+            3. Uso correcto del lenguaje
+            4. Estructura de la respuesta
+            5. Contenido específico
+            
+            Devuelve la respuesta en formato JSON con la misma estructura anterior."""
+        
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Examen a corregir:\n\n{exam_text}"}
+            ],
+            "temperature": 0.1,
+            "max_tokens": 4000
         }
         
-        async function generateCorrectedPDF(corrections) {
-            // Generar PDF corregido usando jsPDF
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF();
+        try:
+            response = requests.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            result = response.json()
             
-            let yPosition = 20;
-            
-            // Título
-            doc.setFontSize(16);
-            doc.text('Examen Corregido', 20, yPosition);
-            yPosition += 20;
-            
-            // Procesar cada corrección
-            corrections.forEach((correction, index) => {
-                doc.setFontSize(12);
-                doc.text(`Página ${index + 1}`, 20, yPosition);
-                yPosition += 10;
-                
-                // Mostrar errores
-                correction.errors.forEach((error, errorIndex) => {
-                    doc.setTextColor(255, 0, 0); // Rojo para errores
-                    doc.text(`❌ ${error.question}`, 20, yPosition);
-                    yPosition += 7;
-                    
-                    doc.setTextColor(0, 0, 0); // Negro para texto normal
-                    doc.text(`Respuesta: ${error.studentAnswer}`, 30, yPosition);
-                    yPosition += 7;
-                    
-                    doc.setTextColor(0, 150, 0); // Verde para respuesta correcta
-                    doc.text(`Correcto: ${error.correctAnswer}`, 30, yPosition);
-                    yPosition += 7;
-                    
-                    doc.setTextColor(255, 0, 0); // Rojo para feedback
-                    doc.text(`Comentario: ${error.feedback}`, 30, yPosition);
-                    yPosition += 7;
-                    
-                    doc.setTextColor(0, 0, 0);
-                    doc.text(`Puntos: ${error.points}/${error.maxPoints}`, 30, yPosition);
-                    yPosition += 15;
-                    
-                    // Nueva página si es necesario
-                    if (yPosition > 250) {
-                        doc.addPage();
-                        yPosition = 20;
-                    }
-                });
-                
-                // Puntuación total
-                doc.setFontSize(14);
-                doc.setTextColor(0, 0, 255); // Azul para puntuación
-                doc.text(`Puntuación total: ${correction.score}/${correction.maxScore}`, 20, yPosition);
-                yPosition += 20;
-            });
-            
-            // Generar URL del PDF
-            const pdfBlob = doc.output('blob');
-            const pdfUrl = URL.createObjectURL(pdfBlob);
-            
-            return pdfUrl;
-        }
-        
-        async function processImages(images) {
-            // Procesar las imágenes capturadas
-            const results = [];
-            
-            for (const imageData of images) {
-                const ocrResult = await performOCROnImage(dataURLtoBlob(imageData), 'letras');
-                const correction = await correctWithAI(ocrResult, 'letras', '');
-                results.push(correction);
+            content = result["choices"][0]["message"]["content"]
+            # Intentar parsear JSON
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError:
+                # Si falla, crear estructura básica
+                return {
+                    "corrections": [],
+                    "total_score": 0,
+                    "feedback": content
+                }
+        except Exception as e:
+            st.error(f"Error en DeepSeek API: {str(e)}")
+            return {
+                "corrections": [],
+                "total_score": 0,
+                "feedback": "Error en la corrección automática"
             }
-            
-            return results;
-        }
+
+# Procesador de video para el escáner
+class VideoProcessor(VideoProcessorBase):
+    def __init__(self):
+        self.captured_image = None
+        self.capture_flag = False
+    
+    def capture_image(self):
+        self.capture_flag = True
+    
+    def recv(self, frame):
+        img = frame.to_ndarray(format="bgr24")
         
-        // Funciones auxiliares
-        function fileToBase64(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.readAsDataURL(file);
-                reader.onload = () => resolve(reader.result);
-                reader.onerror = error => reject(error);
-            });
-        }
+        if self.capture_flag:
+            self.captured_image = img.copy()
+            self.capture_flag = False
         
-        function dataURLtoBlob(dataURL) {
-            const arr = dataURL.split(',');
-            const mime = arr[0].match(/:(.*?);/)[1];
-            const bstr = atob(arr[1]);
-            let n = bstr.length;
-            const u8arr = new Uint8Array(n);
-            while (n--) {
-                u8arr[n] = bstr.charCodeAt(n);
-            }
-            return new Blob([u8arr], { type: mime });
-        }
+        # Mejorar la imagen para escáner
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         
-        // Mostrar resultados
-        function showResults(examResult) {
-            const container = document.getElementById('resultsContainer');
-            container.innerHTML = '';
+        # Detección de contornos para encontrar documentos
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        edged = cv2.Canny(blurred, 50, 150)
+        
+        # Encontrar contornos
+        contours, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if contours:
+            # Encontrar el contorno más grande (probablemente el documento)
+            largest_contour = max(contours, key=cv2.contourArea)
             
-            // Información general
-            const header = document.createElement('div');
-            header.className = 'alert alert-info';
-            header.innerHTML = `
-                <h3>📋 ${examResult.title}</h3>
-                <p><strong>Asignatura:</strong> ${examResult.subject === 'letras' ? '📚 Letras' : '🔬 Ciencias'}</p>
-                <p><strong>Fecha:</strong> ${new Date(examResult.processedAt).toLocaleString()}</p>
-                <p><strong>Puntuación:</strong> ${examResult.score.toFixed(1)}/10</p>
-            `;
-            container.appendChild(header);
+            # Dibujar el contorno en la imagen
+            cv2.drawContours(img, [largest_contour], -1, (0, 255, 0), 2)
+        
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
+
+# Funciones auxiliares
+def preprocess_image(image: Image.Image) -> bytes:
+    """Preprocesa la imagen para mejorar el OCR"""
+    # Convertir a escala de grises
+    gray = image.convert('L')
+    
+    # Mejorar contraste
+    import numpy as np
+    img_array = np.array(gray)
+    img_array = cv2.equalizeHist(img_array)
+    
+    # Aplicar filtro de nitidez
+    kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+    img_array = cv2.filter2D(img_array, -1, kernel)
+    
+    # Convertir de vuelta a PIL
+    processed_image = Image.fromarray(img_array)
+    
+    # Convertir a bytes
+    img_bytes = io.BytesIO()
+    processed_image.save(img_bytes, format='PNG')
+    return img_bytes.getvalue()
+
+def pdf_to_images(pdf_bytes: bytes) -> List[Image.Image]:
+    """Convierte PDF a imágenes"""
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    images = []
+    
+    for page_num in range(len(doc)):
+        page = doc.load_page(page_num)
+        pix = page.get_pixmap()
+        img_data = pix.tobytes("png")
+        image = Image.open(io.BytesIO(img_data))
+        images.append(image)
+    
+    doc.close()
+    return images
+
+def create_corrected_pdf(original_text: str, corrections: Dict, title: str) -> bytes:
+    """Crea un PDF corregido con comentarios en rojo"""
+    # Crear un documento PDF simple con las correcciones
+    doc = fitz.open()
+    page = doc.new_page()
+    
+    # Configurar fuentes
+    font_size = 12
+    red_color = (1, 0, 0)  # RGB rojo
+    black_color = (0, 0, 0)  # RGB negro
+    
+    y_position = 50
+    
+    # Título
+    page.insert_text((50, y_position), title, fontsize=16, color=black_color)
+    y_position += 40
+    
+    # Agregar correcciones
+    for i, correction in enumerate(corrections.get("corrections", [])):
+        # Pregunta
+        page.insert_text((50, y_position), f"Pregunta {i+1}: {correction['question']}", 
+                        fontsize=font_size, color=black_color)
+        y_position += 20
+        
+        # Respuesta del estudiante
+        page.insert_text((50, y_position), f"Respuesta: {correction['student_answer']}", 
+                        fontsize=font_size, color=black_color)
+        y_position += 20
+        
+        # Comentarios en rojo
+        if not correction['is_correct']:
+            page.insert_text((50, y_position), f"❌ INCORRECTO: {correction['comments']}", 
+                            fontsize=font_size, color=red_color)
+            y_position += 15
             
-            // Botón de descarga
-            const downloadBtn = document.createElement('button');
-            downloadBtn.className = 'btn btn-success';
-            downloadBtn.innerHTML = '📥 Descargar PDF Corregido';
-            downloadBtn.onclick = () => {
-                const link = document.createElement('a');
-                link.href = examResult.pdfUrl;
-                link.download = `${examResult.title}_corregido.pdf`;
-                link.click();
-            };
-            container.appendChild(downloadBtn);
+            if correction.get('correct_answer'):
+                page.insert_text((50, y_position), f"Respuesta correcta: {correction['correct_answer']}", 
+                                fontsize=font_size, color=red_color)
+                y_position += 15
+        else:
+            page.insert_text((50, y_position), f"✅ CORRECTO", 
+                            fontsize=font_size, color=(0, 0.5, 0))
+            y_position += 15
+        
+        y_position += 20
+        
+        # Nueva página si es necesario
+        if y_position > 750:
+            page = doc.new_page()
+            y_position = 50
+    
+    # Feedback general
+    if corrections.get("feedback"):
+        page.insert_text((50, y_position), f"Comentarios generales: {corrections['feedback']}", 
+                        fontsize=font_size, color=black_color)
+        y_position += 20
+    
+    # Puntuación total
+    page.insert_text((50, y_position), f"Puntuación total: {corrections.get('total_score', 0)}", 
+                    fontsize=14, color=red_color)
+    
+    # Guardar PDF
+    pdf_bytes = doc.write()
+    doc.close()
+    
+    return pdf_bytes
+
+# Gestión de estado
+def init_session_state():
+    """Inicializa el estado de la sesión"""
+    if 'classes' not in st.session_state:
+        st.session_state.classes = []
+    if 'exams' not in st.session_state:
+        st.session_state.exams = []
+    if 'current_class' not in st.session_state:
+        st.session_state.current_class = None
+
+# Interfaz principal
+def main():
+    st.title("📝 Corrector de Exámenes con IA")
+    st.markdown("---")
+    
+    # Inicializar configuración
+    config = APIConfig()
+    ocr_service = OCRService(config)
+    ai_service = AIService(config)
+    
+    # Inicializar estado
+    init_session_state()
+    
+    # Sidebar para navegación
+    st.sidebar.title("🎓 Navegación")
+    
+    # Verificar configuración de APIs
+    if not all([config.deepseek_api_key, config.google_vision_api_key, config.mathpix_app_id, config.mathpix_app_key]):
+        st.error("⚠️ Configuración de APIs incompleta. Asegúrate de configurar todas las claves API en los secrets.")
+        st.info("Necesitas configurar: DEEPSEEK_API_KEY, GOOGLE_VISION_API_KEY, MATHPIX_APP_ID, MATHPIX_APP_KEY")
+        return
+    
+    # Menú de navegación
+    menu = st.sidebar.selectbox(
+        "Selecciona una opción:",
+        ["🏠 Inicio", "📚 Gestionar Clases", "📄 Corregir Examen", "📊 Historial", "📷 Escáner"]
+    )
+    
+    if menu == "🏠 Inicio":
+        show_home()
+    elif menu == "📚 Gestionar Clases":
+        show_class_management()
+    elif menu == "📄 Corregir Examen":
+        show_exam_correction(ocr_service, ai_service)
+    elif menu == "📊 Historial":
+        show_exam_history()
+    elif menu == "📷 Escáner":
+        show_scanner(ocr_service, ai_service)
+
+def show_home():
+    """Página de inicio"""
+    st.header("🏠 Bienvenido al Corrector de Exámenes")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("📈 Estadísticas")
+        st.metric("Clases creadas", len(st.session_state.classes))
+        st.metric("Exámenes corregidos", len(st.session_state.exams))
+    
+    with col2:
+        st.subheader("🚀 Características")
+        st.markdown("""
+        - ✅ OCR con Google Vision (Letras) y Mathpix (Ciencias)
+        - 🤖 Corrección automática con DeepSeek AI
+        - 📱 Escáner integrado con cámara
+        - 📄 Soporte para PDF e imágenes
+        - 🎯 Gestión de clases y asignaturas
+        - 📊 Histórico de correcciones
+        """)
+    
+    st.markdown("---")
+    st.info("💡 Comienza creando una clase en la sección 'Gestionar Clases' y luego sube un examen para corregir.")
+
+def show_class_management():
+    """Gestión de clases"""
+    st.header("📚 Gestionar Clases")
+    
+    # Crear nueva clase
+    with st.expander("➕ Crear nueva clase"):
+        with st.form("new_class_form"):
+            class_name = st.text_input("Nombre de la clase")
+            subject = st.text_input("Asignatura")
+            subject_type = st.selectbox("Tipo de asignatura", 
+                                      ["Letras", "Ciencias"])
+            teacher_name = st.text_input("Nombre del profesor")
             
-            // Resultados de corrección
-            const resultsDiv = document.createElement('div');
-            resultsDiv.className = 'results-section';
-            resultsDiv.innerHTML = '<h4>🔍 Detalle de Correcciones</h4>';
-            
-            examResult.corrections.forEach((correction, index) => {
-                const correctionDiv = document.createElement('div');
-                correctionDiv.innerHTML = `
-                    <h5>Página ${index + 1}</h5>
-                    <p><strong>Puntuación:</strong> ${correction.score}/${correction.maxScore}</p>
-                    <p><strong>Comentario general:</strong> ${correction.generalFeedback}</p>
-                `;
+            if st.form_submit_button("Crear clase"):
+                if class_name and subject and teacher_name:
+                    new_class = ExamClass(
+                        id=f"class_{len(st.session_state.classes) + 1}",
+                        name=class_name,
+                        subject=subject,
+                        subject_type=SubjectType.LETTERS if subject_type == "Letras" else SubjectType.SCIENCES,
+                        teacher_name=teacher_name,
+                        created_at=datetime.now()
+                    )
+                    st.session_state.classes.append(new_class)
+                    st.success(f"✅ Clase '{class_name}' creada exitosamente")
+                    st.rerun()
+                else:
+                    st.error("❌ Por favor, completa todos los campos")
+    
+    # Mostrar clases existentes
+    if st.session_state.classes:
+        st.subheader("📋 Clases existentes")
+        
+        for class_obj in st.session_state.classes:
+            with st.container():
+                col1, col2, col3 = st.columns([3, 1, 1])
                 
-                correction.errors.forEach(error => {
-                    const errorDiv = document.createElement('div');
-                    errorDiv.className = error.points === error.maxPoints ? 'correction-item correct' : 'correction-item';
-                    errorDiv.innerHTML = `
-                        <h6>${error.question}</h6>
-                        <p><strong>Respuesta del estudiante:</strong> ${error.studentAnswer}</p>
-                        <p><strong>Respuesta correcta:</strong> ${error.correctAnswer}</p>
-                        <p><strong>Comentario:</strong> ${error.feedback}</p>
-                        <p><strong>Puntos:</strong> ${error.points}/${error.maxPoints}</p>
-                    `;
-                    correctionDiv.appendChild(errorDiv);
-                });
+                with col1:
+                    st.write(f"**{class_obj.name}**")
+                    st.write(f"Asignatura: {class_obj.subject} ({class_obj.subject_type.value})")
+                    st.write(f"Profesor: {class_obj.teacher_name}")
                 
-                resultsDiv.appendChild(correctionDiv);
-            });
+                with col2:
+                    exams_count = len([e for e in st.session_state.exams if e.class_id == class_obj.id])
+                    st.metric("Exámenes", exams_count)
+                
+                with col3:
+                    if st.button("🗑️ Eliminar", key=f"delete_{class_obj.id}"):
+                        st.session_state.classes = [c for c in st.session_state.classes if c.id != class_obj.id]
+                        st.rerun()
+                
+                st.markdown("---")
+    else:
+        st.info("🎯 No hay clases creadas. Crea tu primera clase para comenzar.")
+
+def show_exam_correction(ocr_service: OCRService, ai_service: AIService):
+    """Corrección de exámenes"""
+    st.header("📄 Corregir Examen")
+    
+    if not st.session_state.classes:
+        st.warning("⚠️ Primero debes crear una clase en 'Gestionar Clases'")
+        return
+    
+    # Seleccionar clase
+    class_names = [f"{c.name} - {c.subject}" for c in st.session_state.classes]
+    selected_class_idx = st.selectbox("Selecciona una clase:", range(len(class_names)), 
+                                     format_func=lambda x: class_names[x])
+    
+    selected_class = st.session_state.classes[selected_class_idx]
+    
+    # Título del examen
+    exam_title = st.text_input("Título del examen", value=f"Examen {selected_class.subject}")
+    
+    # Métodos de entrada
+    st.subheader("📁 Método de entrada")
+    input_method = st.radio("Selecciona cómo quieres subir el examen:", 
+                           ["📄 Subir PDF", "🖼️ Subir imágenes", "✍️ Escribir texto"])
+    
+    exam_text = ""
+    
+    if input_method == "📄 Subir PDF":
+        uploaded_pdf = st.file_uploader("Sube el PDF del examen", type="pdf")
+        if uploaded_pdf:
+            try:
+                pdf_bytes = uploaded_pdf.read()
+                images = pdf_to_images(pdf_bytes)
+                
+                with st.spinner("Extrayendo texto del PDF..."):
+                    all_text = ""
+                    for i, image in enumerate(images):
+                        st.write(f"Procesando página {i+1}/{len(images)}")
+                        img_bytes = preprocess_image(image)
+                        
+                        if selected_class.subject_type == SubjectType.SCIENCES:
+                            text = ocr_service.mathpix_ocr(img_bytes)
+                        else:
+                            text = ocr_service.google_vision_ocr(img_bytes)
+                        
+                        all_text += f"\n--- Página {i+1} ---\n{text}\n"
+                    
+                    exam_text = all_text
+                    st.success("✅ Texto extraído exitosamente")
+                    with st.expander("Ver texto extraído"):
+                        st.text_area("Texto del examen", exam_text, height=300)
             
-            container.appendChild(resultsDiv);
-        }
+            except Exception as e:
+                st.error(f"❌ Error procesando PDF: {str(e)}")
+    
+    elif input_method == "🖼️ Subir imágenes":
+        uploaded_images = st.file_uploader("Sube las imágenes del examen", 
+                                         type=["png", "jpg", "jpeg"], 
+                                         accept_multiple_files=True)
+        if uploaded_images:
+            try:
+                with st.spinner("Extrayendo texto de las imágenes..."):
+                    all_text = ""
+                    for i, uploaded_image in enumerate(uploaded_images):
+                        st.write(f"Procesando imagen {i+1}/{len(uploaded_images)}")
+                        image = Image.open(uploaded_image)
+                        img_bytes = preprocess_image(image)
+                        
+                        if selected_class.subject_type == SubjectType.SCIENCES:
+                            text = ocr_service.mathpix_ocr(img_bytes)
+                        else:
+                            text = ocr_service.google_vision_ocr(img_bytes)
+                        
+                        all_text += f"\n--- Imagen {i+1} ---\n{text}\n"
+                    
+                    exam_text = all_text
+                    st.success("✅ Texto extraído exitosamente")
+                    with st.expander("Ver texto extraído"):
+                        st.text_area("Texto del examen", exam_text, height=300)
+            
+            except Exception as e:
+                st.error(f"❌ Error procesando imágenes: {str(e)}")
+    
+    elif input_method == "✍️ Escribir texto":
+        exam_text = st.text_area("Escribe o pega el texto del examen:", height=300)
+    
+    # Botón para corregir
+    if st.button("🤖 Corregir Examen", disabled=not exam_text):
+        if exam_text:
+            with st.spinner("Corrigiendo examen con IA..."):
+                corrections = ai_service.correct_exam(exam_text, selected_class.subject_type, selected_class.subject)
+                
+                if corrections and corrections.get("corrections"):
+                    # Mostrar resultados
+                    st.success("✅ Examen corregido exitosamente")
+                    
+                    # Resumen
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Puntuación total", f"{corrections.get('total_score', 0)}/10")
+                    with col2:
+                        correct_answers = sum(1 for c in corrections["corrections"] if c["is_correct"])
+                        total_answers = len(corrections["corrections"])
+                        st.metric("Respuestas correctas", f"{correct_answers}/{total_answers}")
+                    
+                    # Mostrar correcciones
+                    st.subheader("📋 Correcciones detalladas")
+                    for i, correction in enumerate(corrections["corrections"]):
+                        with st.expander(f"Pregunta {i+1} - {'✅ Correcta' if correction['is_correct'] else '❌ Incorrecta'}"):
+                            st.write(f"**Pregunta:** {correction['question']}")
+                            st.write(f"**Respuesta del estudiante:** {correction['student_answer']}")
+                            
+                            if not correction['is_correct']:
+                                st.error(f"**Comentarios:** {correction['comments']}")
+                                if correction.get('correct_answer'):
+                                    st.info(f"**Respuesta correcta:** {correction['correct_answer']}")
+                            else:
+                                st.success("Respuesta correcta")
+                            
+                            st.write(f"**Puntuación:** {correction.get('score', 0)}")
+                    
+                    # Feedback general
+                    if corrections.get("feedback"):
+                        st.subheader("💭 Comentarios generales")
+                        st.write(corrections["feedback"])
+                    
+                    # Guardar examen
+                    new_exam = Exam(
+                        id=f"exam_{len(st.session_state.exams) + 1}",
+                        class_id=selected_class.id,
+                        title=exam_title,
+                        content=exam_text,
+                        corrections=corrections["corrections"],
+                        grade=corrections.get("total_score", 0),
+                        created_at=datetime.now(),
+                        corrected_at=datetime.now()
+                    )
+                    st.session_state.exams.append(new_exam)
+                    
+                    # Generar PDF corregido
+                    pdf_bytes = create_corrected_pdf(exam_text, corrections, exam_title)
+                    
+                    st.download_button(
+                        label="📥 Descargar PDF corregido",
+                        data=pdf_bytes,
+                        file_name=f"{exam_title}_corregido.pdf",
+                        mime="application/pdf"
+                    )
+                
+                else:
+                    st.error("❌ No se pudo corregir el examen. Verifica la configuración de la API.")
+
+def show_exam_history():
+    """Historial de exámenes"""
+    st.header("📊 Historial de Exámenes")
+    
+    if not st.session_state.exams:
+        st.info("📝 No hay exámenes corregidos aún.")
+        return
+    
+    # Filtros
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        class_filter = st.selectbox("Filtrar por clase:", 
+                                   ["Todas"] + [c.name for c in st.session_state.classes])
+    
+    with col2:
+        sort_by = st.selectbox("Ordenar por:", ["Fecha", "Puntuación", "Título"])
+    
+    # Filtrar exámenes
+    filtered_exams = st.session_state.exams
+    
+    if class_filter != "Todas":
+        selected_class = next((c for c in st.session_state.classes if c.name == class_filter), None)
+        if selected_class:
+            filtered_exams = [e for e in filtered_exams if e.class_id == selected_class.id]
+    
+    # Ordenar exámenes
+    if sort_by == "Fecha":
+        filtered_exams.sort(key=lambda x: x.created_at, reverse=True)
+    elif sort_by == "Puntuación":
+        filtered_exams.sort(key=lambda x: x.grade, reverse=True)
+    elif sort_by == "Título":
+        filtered_exams.sort(key=lambda x: x.title)
+    
+    # Mostrar exámenes
+    for exam in filtered_exams:
+        class_obj = next((c for c in st.session_state.classes if c.id == exam.class_id), None)
         
-        function loadResults() {
-            // Cargar resultados previos si existen
-            if (examResults.length > 0) {
-                // Mostrar el último resultado
-                const lastResult = examResults[examResults.length - 1];
-                showResults(lastResult);
+        with st.expander(f"📄 {exam.title} - Puntuación: {exam.grade}/10"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write(f"**Clase:** {class_obj.name if class_obj else 'N/A'}")
+                st.write(f"**Asignatura:** {class_obj.subject if class_obj else 'N/A'}")
+                st.write(f"**Fecha:** {exam.created_at.strftime('%d/%m/%Y %H:%M')}")
+            
+            with col2:
+                st.write(f"**Puntuación:** {exam.grade}/10")
+                correct_answers = sum(1 for c in exam.corrections if c["is_correct"])
+                total_answers = len(exam.corrections)
+                st.write(f"**Respuestas correctas:** {correct_answers}/{total_answers}")
+            
+            # Generar PDF para descarga
+            corrections_dict = {
+                "corrections": exam.corrections,
+                "total_score": exam.grade,
+                "feedback": "Examen del historial"
             }
-        }
-        
-        // Funciones de UI
-        function showLoading() {
-            document.getElementById('loadingOverlay').classList.add('active');
-        }
-        
-        function hideLoading() {
-            document.getElementById('loadingOverlay').classList.remove('active');
-        }
-        
-        function showAlert(message, type = 'info') {
-            const alertDiv = document.createElement('div');
-            alertDiv.className = `alert alert-${type}`;
-            alertDiv.textContent = message;
+            pdf_bytes = create_corrected_pdf(exam.content, corrections_dict, exam.title)
             
-            // Insertar al principio del contenido activo
-            const activeTab = document.querySelector('.tab-pane.active');
-            activeTab.insertBefore(alertDiv, activeTab.firstChild);
+            st.download_button(
+                label="📥 Descargar PDF",
+                data=pdf_bytes,
+                file_name=f"{exam.title}_corregido.pdf",
+                mime="application/pdf",
+                key=f"delete_exam_{exam.id}")
             
-            // Eliminar después de 5 segundos
-            setTimeout(() => {
-                alertDiv.remove();
-            }, 5000);
-        }
+            if delete_button:
+                st.session_state.exams = [e for e in st.session_state.exams if e.id != exam.id]
+                st.rerun()
+
+def show_scanner(ocr_service: OCRService, ai_service: AIService):
+    """Escáner de documentos con cámara"""
+    st.header("📷 Escáner de Documentos")
+    
+    if not st.session_state.classes:
+        st.warning("⚠️ Primero debes crear una clase en 'Gestionar Clases'")
+        return
+    
+    # Seleccionar clase
+    class_names = [f"{c.name} - {c.subject}" for c in st.session_state.classes]
+    selected_class_idx = st.selectbox("Selecciona una clase:", range(len(class_names)), 
+                                     format_func=lambda x: class_names[x], key="scanner_class")
+    
+    selected_class = st.session_state.classes[selected_class_idx]
+    
+    # Título del examen
+    exam_title = st.text_input("Título del examen", value=f"Examen {selected_class.subject}", key="scanner_title")
+    
+    st.subheader("📱 Escáner con Cámara")
+    
+    # Configuración WebRTC
+    rtc_configuration = RTCConfiguration(
+        {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+    )
+    
+    # Procesador de video
+    video_processor = VideoProcessor()
+    
+    # Componente de cámara
+    webrtc_ctx = webrtc_streamer(
+        key="scanner",
+        video_processor_factory=lambda: video_processor,
+        rtc_configuration=rtc_configuration,
+        media_stream_constraints={"video": True, "audio": False},
+        async_processing=True,
+    )
+    
+    # Controles del escáner
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("📸 Capturar Imagen"):
+            if webrtc_ctx.video_processor:
+                webrtc_ctx.video_processor.capture_image()
+                st.success("✅ Imagen capturada")
+    
+    with col2:
+        if st.button("🔄 Procesar Imagen Capturada"):
+            if webrtc_ctx.video_processor and webrtc_ctx.video_processor.captured_image is not None:
+                process_captured_image(webrtc_ctx.video_processor.captured_image, 
+                                     selected_class, exam_title, ocr_service, ai_service)
+
+def process_captured_image(image_array, selected_class, exam_title, ocr_service, ai_service):
+    """Procesa la imagen capturada"""
+    try:
+        # Convertir numpy array a PIL Image
+        image_rgb = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(image_rgb)
         
-        async function simulateProcessing() {
-            const messages = [
-                'Extrayendo texto del documento...',
-                'Analizando contenido con OCR...',
-                'Procesando con IA...',
-                'Generando correcciones...',
-                'Creando PDF corregido...'
-            ];
+        # Mostrar imagen capturada
+        st.image(pil_image, caption="Imagen capturada", use_column_width=True)
+        
+        # Preprocesar imagen
+        with st.spinner("Procesando imagen..."):
+            img_bytes = preprocess_image(pil_image)
             
-            const progressFill = document.getElementById('progressFill');
-            const loadingMessage = document.getElementById('loadingMessage');
+            # Aplicar OCR según el tipo de asignatura
+            if selected_class.subject_type == SubjectType.SCIENCES:
+                exam_text = ocr_service.mathpix_ocr(img_bytes)
+            else:
+                exam_text = ocr_service.google_vision_ocr(img_bytes)
             
-            for (let i = 0; i < messages.length; i++) {
-                loadingMessage.textContent = messages[i];
-                progressFill.style.width = `${((i + 1) / messages.length) * 100}%`;
-                await new Promise(resolve => setTimeout(resolve, 1000));
+            if exam_text:
+                st.success("✅ Texto extraído exitosamente")
+                
+                # Mostrar texto extraído
+                with st.expander("Ver texto extraído"):
+                    st.text_area("Texto del examen", exam_text, height=200)
+                
+                # Corregir automáticamente
+                if st.button("🤖 Corregir Examen Escaneado"):
+                    correct_scanned_exam(exam_text, selected_class, exam_title, ai_service)
+            else:
+                st.error("❌ No se pudo extraer texto de la imagen")
+    
+    except Exception as e:
+        st.error(f"❌ Error procesando imagen: {str(e)}")
+
+def correct_scanned_exam(exam_text, selected_class, exam_title, ai_service):
+    """Corrige el examen escaneado"""
+    with st.spinner("Corrigiendo examen con IA..."):
+        corrections = ai_service.correct_exam(exam_text, selected_class.subject_type, selected_class.subject)
+        
+        if corrections and corrections.get("corrections"):
+            display_correction_results(corrections, exam_text, exam_title, selected_class)
+        else:
+            st.error("❌ No se pudo corregir el examen. Verifica la configuración de la API.")
+
+def display_correction_results(corrections, exam_text, exam_title, selected_class):
+    """Muestra los resultados de la corrección"""
+    st.success("✅ Examen corregido exitosamente")
+    
+    # Resumen
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Puntuación total", f"{corrections.get('total_score', 0)}/10")
+    with col2:
+        correct_answers = sum(1 for c in corrections["corrections"] if c["is_correct"])
+        total_answers = len(corrections["corrections"])
+        st.metric("Respuestas correctas", f"{correct_answers}/{total_answers}")
+    
+    # Mostrar correcciones
+    st.subheader("📋 Correcciones detalladas")
+    for i, correction in enumerate(corrections["corrections"]):
+        with st.expander(f"Pregunta {i+1} - {'✅ Correcta' if correction['is_correct'] else '❌ Incorrecta'}"):
+            st.write(f"**Pregunta:** {correction['question']}")
+            st.write(f"**Respuesta del estudiante:** {correction['student_answer']}")
+            
+            if not correction['is_correct']:
+                st.error(f"**Comentarios:** {correction['comments']}")
+                if correction.get('correct_answer'):
+                    st.info(f"**Respuesta correcta:** {correction['correct_answer']}")
+            else:
+                st.success("Respuesta correcta")
+            
+            st.write(f"**Puntuación:** {correction.get('score', 0)}")
+    
+    # Feedback general
+    if corrections.get("feedback"):
+        st.subheader("💭 Comentarios generales")
+        st.write(corrections["feedback"])
+    
+    # Guardar examen
+    new_exam = Exam(
+        id=f"exam_{len(st.session_state.exams) + 1}",
+        class_id=selected_class.id,
+        title=exam_title,
+        content=exam_text,
+        corrections=corrections["corrections"],
+        grade=corrections.get("total_score", 0),
+        created_at=datetime.now(),
+        corrected_at=datetime.now()
+    )
+    st.session_state.exams.append(new_exam)
+    
+    # Generar PDF corregido
+    pdf_bytes = create_corrected_pdf(exam_text, corrections, exam_title)
+    
+    st.download_button(
+        label="📥 Descargar PDF corregido",
+        data=pdf_bytes,
+        file_name=f"{exam_title}_corregido.pdf",
+        mime="application/pdf"
+    )
+
+def enhance_document_detection(image_array):
+    """Mejora la detección de documentos en la imagen"""
+    gray = cv2.cvtColor(image_array, cv2.COLOR_BGR2GRAY)
+    
+    # Aplicar filtros para mejorar la detección
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edged = cv2.Canny(blurred, 50, 150)
+    
+    # Encontrar contornos
+    contours, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if contours:
+        # Encontrar el contorno más grande
+        largest_contour = max(contours, key=cv2.contourArea)
+        
+        # Aproximar el contorno a un polígono
+        epsilon = 0.02 * cv2.arcLength(largest_contour, True)
+        approx = cv2.approxPolyDP(largest_contour, epsilon, True)
+        
+        # Si encontramos un cuadrilátero, aplicar transformación de perspectiva
+        if len(approx) == 4:
+            return apply_perspective_transform(image_array, approx)
+    
+    return image_array
+
+def apply_perspective_transform(image, contour):
+    """Aplica transformación de perspectiva para enderezar el documento"""
+    try:
+        # Ordenar los puntos del contorno
+        pts = contour.reshape(4, 2)
+        rect = np.zeros((4, 2), dtype=np.float32)
+        
+        # Suma y diferencia de coordenadas para ordenar los puntos
+        s = pts.sum(axis=1)
+        diff = np.diff(pts, axis=1)
+        
+        rect[0] = pts[np.argmin(s)]      # top-left
+        rect[2] = pts[np.argmax(s)]      # bottom-right
+        rect[1] = pts[np.argmin(diff)]   # top-right
+        rect[3] = pts[np.argmax(diff)]   # bottom-left
+        
+        # Calcular dimensiones del rectángulo de destino
+        width_a = np.sqrt(((rect[2][0] - rect[3][0]) ** 2) + ((rect[2][1] - rect[3][1]) ** 2))
+        width_b = np.sqrt(((rect[1][0] - rect[0][0]) ** 2) + ((rect[1][1] - rect[0][1]) ** 2))
+        max_width = max(int(width_a), int(width_b))
+        
+        height_a = np.sqrt(((rect[1][0] - rect[2][0]) ** 2) + ((rect[1][1] - rect[2][1]) ** 2))
+        height_b = np.sqrt(((rect[0][0] - rect[3][0]) ** 2) + ((rect[0][1] - rect[3][1]) ** 2))
+        max_height = max(int(height_a), int(height_b))
+        
+        # Puntos de destino
+        dst = np.array([[0, 0], [max_width - 1, 0], [max_width - 1, max_height - 1], [0, max_height - 1]], dtype=np.float32)
+        
+        # Calcular matriz de transformación
+        M = cv2.getPerspectiveTransform(rect, dst)
+        
+        # Aplicar transformación
+        warped = cv2.warpPerspective(image, M, (max_width, max_height))
+        
+        return warped
+    
+    except Exception as e:
+        print(f"Error en transformación de perspectiva: {e}")
+        return image
+
+def create_advanced_corrected_pdf(original_text: str, corrections: Dict, title: str, class_info: ExamClass) -> bytes:
+    """Crea un PDF corregido más avanzado con mejor formato"""
+    doc = fitz.open()
+    page = doc.new_page()
+    
+    # Configurar fuentes y colores
+    font_size = 11
+    title_font_size = 16
+    subtitle_font_size = 14
+    red_color = (0.8, 0, 0)      # Rojo para errores
+    green_color = (0, 0.6, 0)    # Verde para correctas
+    blue_color = (0, 0, 0.8)     # Azul para información
+    black_color = (0, 0, 0)      # Negro para texto normal
+    
+    y_position = 50
+    margin = 50
+    page_width = 595  # Ancho estándar A4
+    
+    # Encabezado
+    page.insert_text((margin, y_position), title, fontsize=title_font_size, color=black_color)
+    y_position += 25
+    
+    # Información de la clase
+    page.insert_text((margin, y_position), f"Clase: {class_info.name}", fontsize=font_size, color=blue_color)
+    y_position += 15
+    page.insert_text((margin, y_position), f"Asignatura: {class_info.subject} ({class_info.subject_type.value})", 
+                    fontsize=font_size, color=blue_color)
+    y_position += 15
+    page.insert_text((margin, y_position), f"Profesor: {class_info.teacher_name}", fontsize=font_size, color=blue_color)
+    y_position += 15
+    page.insert_text((margin, y_position), f"Fecha de corrección: {datetime.now().strftime('%d/%m/%Y %H:%M')}", 
+                    fontsize=font_size, color=blue_color)
+    y_position += 30
+    
+    # Línea separadora
+    page.draw_line((margin, y_position), (page_width - margin, y_position), color=black_color, width=1)
+    y_position += 20
+    
+    # Resumen de puntuación
+    total_score = corrections.get('total_score', 0)
+    correct_count = sum(1 for c in corrections.get("corrections", []) if c.get("is_correct", False))
+    total_count = len(corrections.get("corrections", []))
+    
+    page.insert_text((margin, y_position), f"PUNTUACIÓN TOTAL: {total_score}/10", 
+                    fontsize=subtitle_font_size, color=red_color)
+    y_position += 20
+    page.insert_text((margin, y_position), f"Respuestas correctas: {correct_count}/{total_count}", 
+                    fontsize=font_size, color=black_color)
+    y_position += 30
+    
+    # Correcciones detalladas
+    for i, correction in enumerate(corrections.get("corrections", [])):
+        # Verificar si necesitamos nueva página
+        if y_position > 700:
+            page = doc.new_page()
+            y_position = 50
+        
+        # Número de pregunta
+        page.insert_text((margin, y_position), f"PREGUNTA {i+1}:", 
+                        fontsize=subtitle_font_size, color=black_color)
+        y_position += 20
+        
+        # Pregunta
+        question_text = correction.get('question', '')
+        wrapped_question = wrap_text(question_text, 80)
+        for line in wrapped_question:
+            page.insert_text((margin + 10, y_position), line, fontsize=font_size, color=black_color)
+            y_position += 15
+        y_position += 5
+        
+        # Respuesta del estudiante
+        page.insert_text((margin + 10, y_position), "Respuesta del estudiante:", 
+                        fontsize=font_size, color=black_color)
+        y_position += 15
+        
+        student_answer = correction.get('student_answer', '')
+        wrapped_answer = wrap_text(student_answer, 75)
+        for line in wrapped_answer:
+            page.insert_text((margin + 20, y_position), line, fontsize=font_size, color=black_color)
+            y_position += 15
+        y_position += 5
+        
+        # Estado de la respuesta
+        if correction.get('is_correct', False):
+            page.insert_text((margin + 10, y_position), "✓ CORRECTA", 
+                            fontsize=font_size, color=green_color)
+            y_position += 15
+        else:
+            page.insert_text((margin + 10, y_position), "✗ INCORRECTA", 
+                            fontsize=font_size, color=red_color)
+            y_position += 15
+            
+            # Comentarios de error
+            comments = correction.get('comments', '')
+            if comments:
+                page.insert_text((margin + 10, y_position), "Comentarios:", 
+                                fontsize=font_size, color=red_color)
+                y_position += 15
+                
+                wrapped_comments = wrap_text(comments, 75)
+                for line in wrapped_comments:
+                    page.insert_text((margin + 20, y_position), line, fontsize=font_size, color=red_color)
+                    y_position += 15
+                y_position += 5
+            
+            # Respuesta correcta
+            correct_answer = correction.get('correct_answer', '')
+            if correct_answer:
+                page.insert_text((margin + 10, y_position), "Respuesta correcta:", 
+                                fontsize=font_size, color=red_color)
+                y_position += 15
+                
+                wrapped_correct = wrap_text(correct_answer, 75)
+                for line in wrapped_correct:
+                    page.insert_text((margin + 20, y_position), line, fontsize=font_size, color=red_color)
+                    y_position += 15
+                y_position += 5
+        
+        # Puntuación
+        score = correction.get('score', 0)
+        page.insert_text((margin + 10, y_position), f"Puntuación: {score}", 
+                        fontsize=font_size, color=black_color)
+        y_position += 25
+        
+        # Línea separadora
+        page.draw_line((margin, y_position), (page_width - margin, y_position), color=(0.7, 0.7, 0.7), width=0.5)
+        y_position += 20
+    
+    # Comentarios generales
+    if corrections.get("feedback"):
+        if y_position > 650:
+            page = doc.new_page()
+            y_position = 50
+        
+        page.insert_text((margin, y_position), "COMENTARIOS GENERALES:", 
+                        fontsize=subtitle_font_size, color=black_color)
+        y_position += 20
+        
+        feedback = corrections.get("feedback", "")
+        wrapped_feedback = wrap_text(feedback, 80)
+        for line in wrapped_feedback:
+            page.insert_text((margin + 10, y_position), line, fontsize=font_size, color=black_color)
+            y_position += 15
+    
+    # Guardar PDF
+    pdf_bytes = doc.write()
+    doc.close()
+    
+    return pdf_bytes
+
+def wrap_text(text: str, max_chars: int) -> List[str]:
+    """Envuelve texto para que se ajuste al ancho de la página"""
+    words = text.split()
+    lines = []
+    current_line = ""
+    
+    for word in words:
+        if len(current_line + " " + word) <= max_chars:
+            current_line += " " + word if current_line else word
+        else:
+            if current_line:
+                lines.append(current_line)
+            current_line = word
+    
+    if current_line:
+        lines.append(current_line)
+    
+    return lines
+
+# Función para exportar datos
+def export_class_data(class_obj: ExamClass) -> Dict:
+    """Exporta los datos de una clase"""
+    class_exams = [e for e in st.session_state.exams if e.class_id == class_obj.id]
+    
+    return {
+        "class_info": {
+            "id": class_obj.id,
+            "name": class_obj.name,
+            "subject": class_obj.subject,
+            "subject_type": class_obj.subject_type.value,
+            "teacher_name": class_obj.teacher_name,
+            "created_at": class_obj.created_at.isoformat()
+        },
+        "exams": [
+            {
+                "id": exam.id,
+                "title": exam.title,
+                "content": exam.content,
+                "corrections": exam.corrections,
+                "grade": exam.grade,
+                "created_at": exam.created_at.isoformat(),
+                "corrected_at": exam.corrected_at.isoformat() if exam.corrected_at else None
             }
-        }
+            for exam in class_exams
+        ]
+    }
+
+def show_statistics():
+    """Muestra estadísticas generales"""
+    st.header("📊 Estadísticas Generales")
+    
+    if not st.session_state.exams:
+        st.info("📈 No hay datos suficientes para mostrar estadísticas.")
+        return
+    
+    # Métricas generales
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Clases", len(st.session_state.classes))
+    
+    with col2:
+        st.metric("Total Exámenes", len(st.session_state.exams))
+    
+    with col3:
+        avg_grade = sum(e.grade for e in st.session_state.exams) / len(st.session_state.exams)
+        st.metric("Nota Media", f"{avg_grade:.1f}/10")
+    
+    with col4:
+        total_corrections = sum(len(e.corrections) for e in st.session_state.exams)
+        st.metric("Total Correcciones", total_corrections)
+    
+    # Gráfico de distribución de notas
+    st.subheader("📈 Distribución de Notas")
+    
+    grades = [e.grade for e in st.session_state.exams]
+    grade_ranges = ["0-2", "2-4", "4-6", "6-8", "8-10"]
+    grade_counts = [
+        sum(1 for g in grades if 0 <= g < 2),
+        sum(1 for g in grades if 2 <= g < 4),
+        sum(1 for g in grades if 4 <= g < 6),
+        sum(1 for g in grades if 6 <= g < 8),
+        sum(1 for g in grades if 8 <= g <= 10)
+    ]
+    
+    chart_data = pd.DataFrame({
+        'Rango de Notas': grade_ranges,
+        'Cantidad': grade_counts
+    })
+    
+    st.bar_chart(chart_data.set_index('Rango de Notas'))
+    
+    # Estadísticas por clase
+    st.subheader("📚 Estadísticas por Clase")
+    
+    for class_obj in st.session_state.classes:
+        class_exams = [e for e in st.session_state.exams if e.class_id == class_obj.id]
         
-        // Funciones de API reales (para implementar en producción)
-        
-        /*
-        // Ejemplo de implementación real con DeepSeek
-        async function callDeepSeekAPI(prompt) {
-            const response = await fetch(`${API_CONFIG.deepseek.baseUrl}/chat/completions`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${API_CONFIG.deepseek.apiKey}`
-                },
-                body: JSON.stringify({
-                    model: 'deepseek-chat',
-                    messages: [
-                        {
-                            role: 'system',
-                            content: 'Eres un profesor experto en corrección de exámenes. Analiza el examen y proporciona correcciones detalladas.'
-                        },
-                        {
-                            role: 'user',
-                            content: prompt
-                        }
-                    ],
-                    max_tokens: 4000,
-                    temperature: 0.1
-                })
-            });
-            
-            return await response.json();
-        }
-        
-        // Ejemplo de implementación real con Google Vision
-        async function callGoogleVisionAPI(base64Image) {
-            const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${API_CONFIG.googleVision.apiKey}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    requests: [{
-                        image: {
-                            content: base64Image.split(',')[1]
-                        },
-                        features: [
-                            {
-                                type: 'TEXT_DETECTION',
-                                maxResults: 50
-                            }
-                        ]
-                    }]
-                })
-            });
-            
-            return await response.json();
-        }
-        
-        // Ejemplo de implementación real con Mathpix
-        async function callMathpixAPI(base64Image) {
-            const response = await fetch('https://api.mathpix.com/v3/text', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'app_id': API_CONFIG.mathpix.appId,
-                    'app_key': API_CONFIG.mathpix.appKey
-                },
-                body: JSON.stringify({
-                    src: base64Image,
-                    formats: ['text', 'latex_styled'],
-                    data_options: {
-                        include_asciimath: true,
-                        include_latex: true
-                    }
-                })
-            });
-            
-            return await response.json();
-        }
-        */
-    </script>
-</body>
-</html> subject, rubric);
-                    corrections.push(correction);
-                } else {
-                    // Procesar imagen
-                    const ocrResult = await performOCROnImage(file, subject);
-                    const correction = await correctWithAI(ocrResult,
+        if class_exams:
+            with st.expander(f"📖 {class_obj.name} - {class_obj.subject}"):
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Exámenes", len(class_exams))
+                
+                with col2:
+                    class_avg = sum(e.grade for e in class_exams) / len(class_exams)
+                    st.metric("Nota Media", f"{class_avg:.1f}/10")
+                
+                with col3:
+                    passing_exams = sum(1 for e in class_exams if e.grade >= 5)
+                    pass_rate = (passing_exams / len(class_exams)) * 100
+                    st.metric("Tasa de Aprobados", f"{pass_rate:.1f}%")
+
+if __name__ == "__main__":
+    main()
