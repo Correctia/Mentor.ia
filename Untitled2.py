@@ -690,7 +690,8 @@ def main():
     )
     
     # Inicializar servicios
-    ocr_service = OCRService()
+    config = APIConfig()
+    ocr_service = OCRService(config)
     ai_service = AIService()
     
     # Sidebar para navegación
