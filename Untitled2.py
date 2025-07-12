@@ -515,6 +515,11 @@ class AIService:
             "Content-Type": "application/json"
         }
         
+        # Verificar API key
+        if not self.config.deepseek_api_key:
+            st.error("❌ API key de DeepSeek no configurada")
+            return None
+        
         if subject_type == SubjectType.SCIENCES:
             system_prompt = f"""Eres un profesor experto en {subject_name} (asignatura de ciencias). 
             Analiza el siguiente examen y proporciona correcciones detalladas.
@@ -527,21 +532,23 @@ class AIService:
             5. La respuesta correcta si es necesaria
             6. Puntuación sugerida
             
+            IMPORTANTE: Siempre incluye al menos una corrección, incluso si es un análisis general.
+            
             Devuelve la respuesta en formato JSON con esta estructura:
-            {
+            {{
                 "corrections": [
-                    {
+                    {{
                         "question": "pregunta",
                         "student_answer": "respuesta del estudiante",
                         "is_correct": true/false,
                         "comments": "comentarios específicos",
                         "correct_answer": "respuesta correcta",
                         "score": puntuación
-                    }
+                    }}
                 ],
                 "total_score": puntuación_total,
                 "feedback": "comentarios generales"
-            }"""
+            }}"""
         else:
             system_prompt = f"""Eres un profesor experto en {subject_name} (asignatura de letras). 
             Analiza el siguiente examen y proporciona correcciones detalladas.
@@ -553,7 +560,9 @@ class AIService:
             4. Estructura de la respuesta
             5. Contenido específico
             
-            Devuelve la respuesta en formato JSON con la misma estructura anterior."""
+            IMPORTANTE: Siempre incluye al menos una corrección, incluso si es un análisis general.
+            
+            Devuelve la respuesta en formato JSON con la estructura anterior."""
         
         payload = {
             "model": "deepseek-chat",
@@ -566,30 +575,116 @@ class AIService:
         }
         
         try:
-            response = requests.post(url, json=payload, headers=headers)
+            # Debug: mostrar que estamos haciendo la petición
+            st.info("🔄 Enviando petición a DeepSeek API...")
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            # Debug: mostrar código de estado
+            st.info(f"📡 Respuesta HTTP: {response.status_code}")
+            
+            if response.status_code != 200:
+                st.error(f"❌ Error HTTP {response.status_code}: {response.text}")
+                return None
+            
+            result = response.json()
+            
+            # Debug: mostrar estructura de respuesta
+            st.write("**Debug - Estructura de respuesta:**")
+            st.json(result)
+            
+            if "choices" not in result or not result["choices"]:
+                st.error("❌ Respuesta de API inválida: sin choices")
+                return None
+            
+            content = result["choices"][0]["message"]["content"]
+            st.write("**Debug - Contenido recibido:**")
+            st.text(content)
+            
+            # Intentar parsear JSON
+            try:
+                parsed_result = json.loads(content)
+                
+                # Verificar que tenga la estructura correcta
+                if "corrections" in parsed_result:
+                    if isinstance(parsed_result["corrections"], list) and len(parsed_result["corrections"]) > 0:
+                        st.success("✅ JSON parseado correctamente con correcciones")
+                        return parsed_result
+                    else:
+                        st.warning("⚠️ JSON válido pero sin correcciones")
+                        # Crear una corrección básica
+                        return {
+                            "corrections": [{
+                                "question": "Análisis general",
+                                "student_answer": exam_text[:200] + "...",
+                                "is_correct": False,
+                                "comments": "Análisis procesado correctamente",
+                                "correct_answer": "Ver feedback general",
+                                "score": 5
+                            }],
+                            "total_score": 5,
+                            "feedback": parsed_result.get("feedback", content)
+                        }
+                else:
+                    st.error("❌ JSON válido pero sin clave 'corrections'")
+                    return None
+                    
+            except json.JSONDecodeError as e:
+                st.error(f"❌ Error parseando JSON: {str(e)}")
+                st.text("Contenido que causó error:")
+                st.text(content)
+                
+                # Crear estructura básica con contenido de respuesta
+                return {
+                    "corrections": [{
+                        "question": "Análisis general del examen",
+                        "student_answer": exam_text[:200] + "...",
+                        "is_correct": False,
+                        "comments": "La IA no pudo generar JSON válido, pero procesó el examen",
+                        "correct_answer": "Ver feedback general",
+                        "score": 5
+                    }],
+                    "total_score": 5,
+                    "feedback": content
+                }
+                
+        except requests.exceptions.RequestException as e:
+            st.error(f"❌ Error de conexión: {str(e)}")
+            return None
+        except Exception as e:
+            st.error(f"❌ Error inesperado: {str(e)}")
+            st.exception(e)
+            return None
+    
+    def generate_content(self, prompt: str) -> str:
+        """Método auxiliar para generar contenido"""
+        url = "https://api.deepseek.com/v1/chat/completions"
+        
+        headers = {
+            "Authorization": f"Bearer {self.config.deepseek_api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 2000
+        }
+        
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
             response.raise_for_status()
             result = response.json()
             
-            content = result["choices"][0]["message"]["content"]
-            # Intentar parsear JSON
-            try:
-                return json.loads(content)
-            except json.JSONDecodeError:
-                # Si falla, crear estructura básica
-                return {
-                    "corrections": [],
-                    "total_score": 0,
-                    "feedback": content
-                }
+            return result["choices"][0]["message"]["content"]
+            
         except Exception as e:
-            st.error(f"Error en DeepSeek API: {str(e)}")
-            return {
-                "corrections": [],
-                "total_score": 0,
-                "feedback": "Error en la corrección automática"
-            }
-
-# Procesador de video para el escáner
+            st.error(f"Error generando contenido: {str(e)}")
+            return ""
+            
 class VideoProcessor(VideoProcessorBase):
     def __init__(self):
         self.captured_image = None
