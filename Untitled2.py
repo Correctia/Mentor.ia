@@ -1,1171 +1,1234 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-#!/usr/bin/env python
-# coding: utf-8
-
-import streamlit as st
-import openai
-from io import BytesIO
-import json
-from datetime import datetime, timedelta
-import pandas as pd
-import numpy as np
-from PIL import Image
-import base64
-import sqlite3
-import hashlib
-from dataclasses import dataclass
-from typing import List, Dict, Optional
-import plotly.graph_objects as go
-import plotly.express as px
-import fitz  # PyMuPDF para PDFs
-import os
-import requests
-import time
-import cv2
-
-# Configuración de la aplicación
-st.set_page_config(
-    page_title="Mentor.ia - Corrector Inteligente",
-    page_icon="🎓",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# API Keys y configuraciones con manejo de errores
-try:
-    GOOGLE_VISION_API_KEY = st.secrets.get("GOOGLE_VISION_API_KEY", "")
-except:
-    GOOGLE_VISION_API_KEY = os.getenv("GOOGLE_VISION_API_KEY", "")
-
-try:
-    DEEPSEEK_API_KEY = st.secrets["DEEPSEEK_API_KEY"]
-    DEEPSEEK_BASE_URL = st.secrets.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-except:
-    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-    DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-
-@dataclass
-class PricingPlan:
-    name: str
-    price_monthly: float
-    exams_limit: int
-    features: List[str]
-    can_create_groups: bool
-
-PRICING_PLANS = {
-    "free": PricingPlan(
-        name="Plan Gratuito",
-        price_monthly=0,
-        exams_limit=25,
-        features=[
-            "25 exámenes/mes", 
-            "Procesamiento básico",
-            "Corrección con IA",
-            "Estadísticas básicas"
-        ],
-        can_create_groups=False
-    ),
-    "basic": PricingPlan(
-        name="Plan Básico",
-        price_monthly=9.99,
-        exams_limit=100,
-        features=[
-            "100 exámenes/mes",
-            "Creación de grupos",
-            "OCR Google avanzado",
-            "Estadísticas avanzadas",
-            "Soporte prioritario"
-        ],
-        can_create_groups=True
-    ),
-    "premium": PricingPlan(
-        name="Plan Premium",
-        price_monthly=19.99,
-        exams_limit=500,
-        features=[
-            "500 exámenes/mes",
-            "Grupos ilimitados",
-            "OCR Google Premium",
-            "Análisis detallado",
-            "Exportación Excel/PDF",
-            "Soporte 24/7"
-        ],
-        can_create_groups=True
-    ),
-    "enterprise": PricingPlan(
-        name="Plan Enterprise",
-        price_monthly=49.99,
-        exams_limit=2000,
-        features=[
-            "2000 exámenes/mes",
-            "Múltiples usuarios",
-            "OCR Google Enterprise",
-            "Integración API",
-            "Análisis institucional",
-            "Soporte dedicado"
-        ],
-        can_create_groups=True
-    )
-}
-
-SUBJECT_COLORS = {
-    "Matemáticas": "#FF6B6B",
-    "Ciencias": "#4ECDC4", 
-    "Literatura": "#45B7D1",
-    "Historia": "#96CEB4",
-    "Física": "#FFEAA7",
-    "Química": "#DDA0DD",
-    "Biología": "#98D8C8",
-    "Geografía": "#F7DC6F",
-    "Filosofía": "#BB8FCE",
-    "Idiomas": "#85C1E9",
-    "Personalizada": "#BDC3C7"
-}
-
-class ImprovedGoogleOCR:
-    def __init__(self, api_key):
-        self.api_key = api_key
-        self.is_available = False
-        self.error_message = None
-        if not api_key or len(api_key) < 30:
-            self.error_message = "Google Vision API key no configurada o inválida"
-            st.warning("⚠️ Google Vision API key no configurada o inválida.")
-            return
-        self.vision_url = f"https://vision.googleapis.com/v1/images:annotate?key={self.api_key}"
-        self.is_available = True
-
-    def is_configured(self):
-        return self.is_available and self.api_key and len(self.api_key) > 30
-
-    def extract_text_from_image_debug(self, image_data):
-        if not self.is_configured():
-            return None, "Google Vision API no configurada"
-        try:
-            image_base64 = base64.b64encode(image_data).decode('utf-8')
-            request_payload = {
-                "requests": [
-                    {
-                        "image": {"content": image_base64},
-                        "features": [{"type": "DOCUMENT_TEXT_DETECTION", "maxResults": 1}],
-                        "imageContext": {"languageHints": ["es", "en"]}
-                    }
-                ]
-            }
-            headers = {'Content-Type': 'application/json'}
-            response = requests.post(self.vision_url, headers=headers, json=request_payload, timeout=60)
-            if response.status_code != 200:
-                return None, f"Error Google Vision API: {response.status_code} - {response.text}"
-            result = response.json()
-            vision_response = result['responses'][0]
-            if 'error' in vision_response:
-                error_msg = vision_response['error'].get('message', 'Error desconocido')
-                return None, f"Error en Google Vision: {error_msg}"
-            if 'textAnnotations' not in vision_response or not vision_response['textAnnotations']:
-                return None, "No se detectó texto en la imagen."
-            full_text = vision_response['textAnnotations'][0].get('description', '')
-            if not full_text.strip():
-                return None, "El texto extraído está vacío"
-            confidence_info = {
-                'avg_confidence': 0.8,
-                'quality_ratio': 0.8,
-                'total_lines': len(full_text.split('\n')),
-                'low_confidence_lines': 0,
-                'message': f"Texto extraído exitosamente: {len(full_text)} caracteres"
-            }
-            return full_text, confidence_info
-        except Exception as e:
-            return None, f"Error en OCR: {str(e)}"
-
-class DatabaseManager:
-    def __init__(self):
-        self.init_database()
-    def init_database(self):
-        conn = sqlite3.connect('mentor_ia.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY,
-                username TEXT UNIQUE,
-                plan TEXT DEFAULT 'free',
-                exams_used INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_reset TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS groups (
-                id INTEGER PRIMARY KEY,
-                user_id INTEGER,
-                name TEXT,
-                subject TEXT,
-                description TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (id)
-            )
-        ''')
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS exams (
-                id INTEGER PRIMARY KEY,
-                user_id INTEGER,
-                group_id INTEGER,
-                filename TEXT,
-                subject TEXT,
-                grade REAL,
-                total_points REAL,
-                corrections TEXT,
-                ocr_method TEXT,
-                text_quality REAL DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (id),
-                FOREIGN KEY (group_id) REFERENCES groups (id)
-            )
-        ''')
-        conn.commit()
-        conn.close()
-    def reset_monthly_limits(self):
-        conn = sqlite3.connect('mentor_ia.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE users 
-            SET exams_used = 0, last_reset = CURRENT_TIMESTAMP
-            WHERE DATE(last_reset, '+1 month') <= DATE('now')
-        ''')
-        conn.commit()
-        conn.close()
-
-class ExamCorrector:
-    def __init__(self):
-        self.client = None
-        self.db = None
-        self.google_ocr = None
-        self.initialization_errors = []
-        try:
-            self.db = DatabaseManager()
-        except Exception as e:
-            self.initialization_errors.append(f"Error base de datos: {str(e)}")
-            st.error(f"Error al inicializar base de datos: {str(e)}")
-        try:
-            if not DEEPSEEK_API_KEY:
-                self.initialization_errors.append("DeepSeek API key no configurada")
-                st.error("❌ DeepSeek API key no configurada. Por favor configura DEEPSEEK_API_KEY en los secrets o variables de entorno.")
-            else:
-                self.client = openai.OpenAI(
-                    api_key=DEEPSEEK_API_KEY,
-                    base_url=DEEPSEEK_BASE_URL
-                )
-        except Exception as e:
-            self.initialization_errors.append(f"Error DeepSeek API: {str(e)}")
-            st.error(f"Error al inicializar DeepSeek API: {str(e)}")
-        try:
-            if GOOGLE_VISION_API_KEY:
-                self.google_ocr = ImprovedGoogleOCR(GOOGLE_VISION_API_KEY)
-                if not self.google_ocr.is_configured():
-                    self.initialization_errors.append("Google Vision API no configurada correctamente")
-            else:
-                self.initialization_errors.append("Google Vision API key no encontrada")
-                st.warning("⚠️ Google Vision API no configurada. Funcionalidad OCR limitada.")
-        except Exception as e:
-            self.initialization_errors.append(f"Error Google OCR: {str(e)}")
-            st.error(f"Error al inicializar Google OCR: {str(e)}")
-
-    def extract_text_from_file(self, uploaded_file):
-        try:
-            file_type = uploaded_file.type
-            ocr_method = "unknown"
-            text_quality = 0.0
-            text = None
-            if file_type == "application/pdf":
-                pdf_bytes = uploaded_file.read()
-                pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
-                text = ""
-                for page_num in range(len(pdf_document)):
-                    page = pdf_document[page_num]
-                    page_text = page.get_text()
-                    if page_text.strip() and len(page_text.strip()) > 50:
-                        text += page_text
-                        ocr_method = "pdf_native"
-                        text_quality = 0.9
-                    else:
-                        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                        img_data = pix.tobytes("png")
-                        ocr_text, _ = self.google_ocr.extract_text_from_image_debug(img_data)
-                        if ocr_text and len(ocr_text.strip()) > 10:
-                            text += ocr_text + "\n"
-                            ocr_method = "google_ocr"
-                            text_quality = 0.7
-                        else:
-                            text += "[Página sin texto reconocido]\n"
-                            text_quality = 0.3
-                pdf_document.close()
-            elif file_type.startswith("image/"):
-                image_bytes = uploaded_file.read()
-                if self.google_ocr and self.google_ocr.is_configured():
-                    extracted_text, confidence_info = self.google_ocr.extract_text_from_image_debug(image_bytes)
-                    if extracted_text:
-                        text = extracted_text
-                        ocr_method = "google_ocr"
-                        text_quality = confidence_info.get('avg_confidence', 0.5)
-                    else:
-                        text = None
-                        ocr_method = "failed"
-                        text_quality = 0.0
-                        st.error(f"Error OCR: {confidence_info}")
-                else:
-                    text = None
-                    ocr_method = "no_ocr"
-                    text_quality = 0.0
-            else:
-                text = None
-                ocr_method = "unsupported_format"
-                text_quality = 0.0
-                st.error(f"Formato no soportado: {file_type}")
-            return text, ocr_method, text_quality
-        except Exception as e:
-            st.error(f"Error extrayendo texto: {str(e)}")
-            return None, "error", 0.0
-
-    def generate_criteria_from_text(self, text, subject):
-        """
-        Genera criterios y rúbrica automáticamente usando IA.
-        """
-        # Puedes personalizar el prompt y la lógica según tu necesidad
-        prompt = f"""
-        Eres un profesor experto en {subject}. Analiza el siguiente texto de examen y genera:
-        1. Una lista de criterios de evaluación relevantes.
-        2. Una rúbrica de calificación breve.
-        Texto del examen:
-        {text}
-        """
-        try:
-            response = self.client.chat.completions.create(
-                model="deepseek-chat",
-                messages=[
-                    {"role": "system", "content": "Genera criterios y rúbrica para corrección de exámenes."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=1000,
-                temperature=0.5
-            )
-            result = response.choices[0].message.content
-            # Puedes intentar extraer criterios y rúbrica del resultado
-            # Aquí simplemente devolvemos el texto completo como ambos
-            return {
-                "criteria": result,
-                "rubric": result
-            }
-        except Exception as e:
-            return {
-                "criteria": "No se pudo generar criterios automáticamente.",
-                "rubric": "No se pudo generar rúbrica automáticamente."
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrector de Exámenes con IA</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+        
+        .nav-tabs {
+            display: flex;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .nav-tab {
+            flex: 1;
+            padding: 15px 20px;
+            text-align: center;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            color: #6c757d;
+            transition: all 0.3s ease;
+        }
+        
+        .nav-tab.active {
+            background: white;
+            color: #495057;
+            border-bottom: 3px solid #007bff;
+        }
+        
+        .nav-tab:hover {
+            background: #e9ecef;
+            color: #495057;
+        }
+        
+        .tab-content {
+            padding: 30px;
+        }
+        
+        .tab-pane {
+            display: none;
+        }
+        
+        .tab-pane.active {
+            display: block;
+        }
+        
+        .form-group {
+            margin-bottom: 25px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        .form-control {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
+        
+        .form-control:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+        }
+        
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,123,255,0.4);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+            color: white;
+        }
+        
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(40,167,69,0.4);
+        }
+        
+        .btn-warning {
+            background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+            color: #212529;
+        }
+        
+        .btn-warning:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255,193,7,0.4);
+        }
+        
+        .file-upload {
+            border: 2px dashed #007bff;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            background: #f8f9ff;
+            transition: all 0.3s ease;
+        }
+        
+        .file-upload:hover {
+            background: #e6f3ff;
+            border-color: #0056b3;
+        }
+        
+        .file-upload.dragover {
+            background: #cce7ff;
+            border-color: #0056b3;
+        }
+        
+        .camera-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .camera-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .camera-preview {
+            width: 100%;
+            max-width: 500px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+        
+        .loading.active {
+            display: block;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .classes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .class-card {
+            background: white;
+            border: 2px solid #e9ecef;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .class-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        }
+        
+        .class-card h3 {
+            color: #495057;
+            margin-bottom: 10px;
+        }
+        
+        .class-card p {
+            color: #6c757d;
+            margin-bottom: 15px;
+        }
+        
+        .exam-item {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .results-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        
+        .correction-item {
+            background: white;
+            border-left: 4px solid #dc3545;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
+        
+        .correction-item.correct {
+            border-left-color: #28a745;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 10px;
+            border: 1px solid transparent;
+        }
+        
+        .alert-success {
+            color: #155724;
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+        }
+        
+        .alert-error {
+            color: #721c24;
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+        }
+        
+        .alert-info {
+            color: #0c5460;
+            background-color: #d1ecf1;
+            border-color: #bee5eb;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #007bff 0%, #0056b3 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        @media (max-width: 768px) {
+            .nav-tabs {
+                flex-direction: column;
             }
             
-    def correct_exam(self, text, subject, rubric=None, total_points=10):
-        if not self.client:
-            return {
-                "nota_final": {
-                    "puntuacion": 0,
-                    "puntuacion_maxima": total_points,
-                    "porcentaje": 0,
-                    "letra": "F"
-                },
-                "evaluaciones": [],
-                "comentario": ["DeepSeek API no configurada"],
-                "recomendaciones": [],
-                "calidad_texto": None,
-                "respuesta_raw": None
+            .camera-controls {
+                flex-direction: column;
             }
-        try:
-            system_prompt = f"""
-            Eres un profesor experto en {subject} con años de experiencia en corrección de exámenes.
-            TAREA: Corregir el siguiente examen de manera objetiva y constructiva.
-            CRITERIOS DE EVALUACIÓN:
-            - Puntuación total: {total_points} puntos
-            - Materia: {subject}
-            {"- Rúbrica específica: " + rubric if rubric else ""}
-            FORMATO DE RESPUESTA (JSON):
-            {{
-                "puntuacion_total": float,
-                "puntuacion_maxima": {total_points},
-                "porcentaje": float,
-                "calificacion_letra": "A/B/C/D/F",
-                "preguntas_analizadas": [],
-                "resumen_general": {{
-                    "fortalezas": [],
-                    "areas_mejora": [],
-                    "recomendaciones": []
-                }},
-                "tiempo_estimado_estudio": "",
-                "recursos_recomendados": []
-            }}
-            INSTRUCCIONES:
-            1. Analiza cada pregunta individualmente
-            2. Asigna puntuación parcial cuando sea apropiado
-            3. Explica claramente por qué cada respuesta es correcta o incorrecta
-            4. Proporciona sugerencias constructivas
-            5. Mantén un tono profesional y alentador
-            6. Si no puedes identificar preguntas claramente, analiza el contenido general
-            """
-            user_prompt = f"EXAMEN A CORREGIR:\n{text}\nPor favor, corrige este examen siguiendo los criterios especificados y devuelve la evaluación en formato JSON."
-            response = self.client.chat.completions.create(
-                model="deepseek-chat",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                max_tokens=4000,
-                temperature=0.3
-            )
-            response_text = response.choices[0].message.content
-            try:
-                correction_data = json.loads(response_text)
-                result = {
-                    "nota_final": {
-                        "puntuacion": correction_data.get("puntuacion_total", 0),
-                        "puntuacion_maxima": correction_data.get("puntuacion_maxima", total_points),
-                        "porcentaje": correction_data.get("porcentaje", 0),
-                        "letra": correction_data.get("calificacion_letra", "F")
-                    },
-                    "evaluaciones": correction_data.get("preguntas_analizadas", []),
-                    "comentario": correction_data.get("resumen_general", {}).get("fortalezas", []),
-                    "recomendaciones": correction_data.get("resumen_general", {}).get("recomendaciones", []),
-                    "calidad_texto": None,
-                    "respuesta_raw": response_text
-                }
-                return result
-            except json.JSONDecodeError:
-                return {
-                    "nota_final": {
-                        "puntuacion": 0,
-                        "puntuacion_maxima": total_points,
-                        "porcentaje": 0,
-                        "letra": "F"
-                    },
-                    "evaluaciones": [],
-                    "comentario": ["Error en el procesamiento de la respuesta"],
-                    "recomendaciones": ["Revisar el texto del examen"],
-                    "calidad_texto": None,
-                    "respuesta_raw": response_text
-                }
-        except Exception as e:
-            return {
-                "nota_final": {
-                    "puntuacion": 0,
-                    "puntuacion_maxima": total_points,
-                    "porcentaje": 0,
-                    "letra": "F"
-                },
-                "evaluaciones": [],
-                "comentario": [f"Error en corrección: {str(e)}"],
-                "recomendaciones": [],
-                "calidad_texto": None,
-                "respuesta_raw": None
+            
+            .classes-grid {
+                grid-template-columns: 1fr;
             }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📝 Corrector de Exámenes con IA</h1>
+            <p>Corrección automática inteligente para asignaturas de letras y ciencias</p>
+        </div>
+        
+        <div class="nav-tabs">
+            <button class="nav-tab active" onclick="showTab('upload')">📁 Subir Examen</button>
+            <button class="nav-tab" onclick="showTab('camera')">📷 Escanear</button>
+            <button class="nav-tab" onclick="showTab('classes')">🎓 Mis Clases</button>
+            <button class="nav-tab" onclick="showTab('results')">📊 Resultados</button>
+        </div>
+        
+        <div class="tab-content">
+            <!-- Pestaña de Subir Examen -->
+            <div id="upload" class="tab-pane active">
+                <h2>📁 Subir Examen</h2>
+                
+                <div class="form-group">
+                    <label for="examSubject">Asignatura</label>
+                    <select id="examSubject" class="form-control">
+                        <option value="">Selecciona una asignatura</option>
+                        <option value="letras">📚 Letras (Lengua, Historia, Filosofía, etc.)</option>
+                        <option value="ciencias">🔬 Ciencias (Matemáticas, Física, Química, etc.)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="examClass">Clase</label>
+                    <select id="examClass" class="form-control">
+                        <option value="">Selecciona una clase</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="examTitle">Título del Examen</label>
+                    <input type="text" id="examTitle" class="form-control" placeholder="Ej: Examen de Matemáticas - Tema 5">
+                </div>
+                
+                <div class="form-group">
+                    <label for="rubric">Criterios de Corrección (Opcional)</label>
+                    <textarea id="rubric" class="form-control" rows="4" placeholder="Especifica los criterios de corrección, puntuación por pregunta, etc."></textarea>
+                </div>
+                
+                <div class="file-upload" id="fileUpload">
+                    <div>
+                        <h3>📎 Arrastra y suelta archivos aquí</h3>
+                        <p>o haz clic para seleccionar</p>
+                        <p><small>Formatos soportados: PDF, JPG, PNG, JPEG</small></p>
+                    </div>
+                    <input type="file" id="fileInput" multiple accept=".pdf,.jpg,.jpeg,.png" style="display: none;">
+                </div>
+                
+                <div id="fileList" class="hidden">
+                    <h4>Archivos seleccionados:</h4>
+                    <ul id="selectedFiles"></ul>
+                </div>
+                
+                <div class="form-group">
+                    <button id="processExam" class="btn btn-primary" onclick="processExam()">🚀 Procesar Examen</button>
+                </div>
+            </div>
+            
+            <!-- Pestaña de Cámara -->
+            <div id="camera" class="tab-pane">
+                <h2>📷 Escanear Examen</h2>
+                
+                <div class="camera-section">
+                    <div class="camera-controls">
+                        <button id="startCamera" class="btn btn-primary" onclick="startCamera()">📹 Iniciar Cámara</button>
+                        <button id="capturePhoto" class="btn btn-success hidden" onclick="capturePhoto()">📸 Capturar</button>
+                        <button id="stopCamera" class="btn btn-warning hidden" onclick="stopCamera()">⏹️ Detener</button>
+                    </div>
+                    
+                    <div id="cameraContainer" class="hidden">
+                        <video id="videoElement" class="camera-preview" autoplay></video>
+                        <canvas id="canvasElement" class="camera-preview hidden"></canvas>
+                    </div>
+                </div>
+                
+                <div id="capturedImages" class="hidden">
+                    <h4>Imágenes capturadas:</h4>
+                    <div id="imageGallery"></div>
+                    <button class="btn btn-primary" onclick="processScannedImages()">🔍 Procesar Imágenes</button>
+                </div>
+            </div>
+            
+            <!-- Pestaña de Clases -->
+            <div id="classes" class="tab-pane">
+                <h2>🎓 Gestión de Clases</h2>
+                
+                <div class="form-group">
+                    <button class="btn btn-primary" onclick="showCreateClassForm()">➕ Crear Nueva Clase</button>
+                </div>
+                
+                <div id="createClassForm" class="hidden">
+                    <h3>Crear Nueva Clase</h3>
+                    <div class="form-group">
+                        <label for="className">Nombre de la Clase</label>
+                        <input type="text" id="className" class="form-control" placeholder="Ej: Matemáticas 1º ESO">
+                    </div>
+                    <div class="form-group">
+                        <label for="classDescription">Descripción</label>
+                        <textarea id="classDescription" class="form-control" rows="3" placeholder="Descripción de la clase"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="classSubject">Tipo de Asignatura</label>
+                        <select id="classSubject" class="form-control">
+                            <option value="letras">📚 Letras</option>
+                            <option value="ciencias">🔬 Ciencias</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <button class="btn btn-success" onclick="createClass()">✅ Crear Clase</button>
+                        <button class="btn btn-warning" onclick="hideCreateClassForm()">❌ Cancelar</button>
+                    </div>
+                </div>
+                
+                <div id="classesContainer" class="classes-grid">
+                    <!-- Las clases se cargarán aquí dinámicamente -->
+                </div>
+            </div>
+            
+            <!-- Pestaña de Resultados -->
+            <div id="results" class="tab-pane">
+                <h2>📊 Resultados de Corrección</h2>
+                
+                <div id="resultsContainer">
+                    <div class="alert alert-info">
+                        <p>📋 Aquí aparecerán los resultados de la corrección una vez que proceses un examen.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Loading overlay -->
+        <div id="loadingOverlay" class="loading">
+            <div class="spinner"></div>
+            <h3>Procesando examen...</h3>
+            <p id="loadingMessage">Inicializando...</p>
+            <div class="progress-bar">
+                <div id="progressFill" class="progress-fill"></div>
+            </div>
+        </div>
+    </div>
 
-    def save_exam_result(self, user_id, group_id, filename, subject, correction_data, ocr_method, text_quality):
-        if not self.db:
-            return False
-        try:
-            conn = sqlite3.connect('mentor_ia.db')
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO exams (user_id, group_id, filename, subject, grade, total_points, corrections, ocr_method, text_quality)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                user_id,
-                group_id,
-                filename,
+    <script>
+        // Variables globales
+        let currentStream = null;
+        let capturedImages = [];
+        let classes = JSON.parse(localStorage.getItem('examClasses')) || [];
+        let examResults = JSON.parse(localStorage.getItem('examResults')) || [];
+        
+        // Configuración de APIs (en producción, esto debería estar en el servidor)
+        const API_CONFIG = {
+            deepseek: {
+                baseUrl: 'https://api.deepseek.com/v1',
+                apiKey: 'sk-42d24fd956db4146b24782e33879b6ad' // Reemplazar con tu clave real
+            },
+            googleVision: {
+                apiKey: 'AIzaSyAyGT7uDH5Feaqtc27fcF7ArgkrRO8jU0Q' // Reemplazar con tu clave real
+            },
+            mathpix: {
+                appId: 'YOUR_MATHPIX_APP_ID', // Reemplazar con tu app ID
+                appKey: 'YOUR_MATHPIX_APP_KEY' // Reemplazar con tu clave real
+            }
+        };
+        
+        // Inicialización
+        document.addEventListener('DOMContentLoaded', function() {
+            loadClasses();
+            updateClassSelect();
+            setupFileUpload();
+            loadResults();
+        });
+        
+        // Gestión de pestañas
+        function showTab(tabName) {
+            // Ocultar todas las pestañas
+            document.querySelectorAll('.tab-pane').forEach(pane => {
+                pane.classList.remove('active');
+            });
+            
+            // Desactivar todos los botones
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Mostrar la pestaña seleccionada
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+        
+        // Configuración de carga de archivos
+        function setupFileUpload() {
+            const fileUpload = document.getElementById('fileUpload');
+            const fileInput = document.getElementById('fileInput');
+            
+            fileUpload.addEventListener('click', () => fileInput.click());
+            fileUpload.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                fileUpload.classList.add('dragover');
+            });
+            fileUpload.addEventListener('dragleave', () => {
+                fileUpload.classList.remove('dragover');
+            });
+            fileUpload.addEventListener('drop', (e) => {
+                e.preventDefault();
+                fileUpload.classList.remove('dragover');
+                handleFiles(e.dataTransfer.files);
+            });
+            
+            fileInput.addEventListener('change', (e) => {
+                handleFiles(e.target.files);
+            });
+        }
+        
+        function handleFiles(files) {
+            const fileList = document.getElementById('fileList');
+            const selectedFiles = document.getElementById('selectedFiles');
+            
+            selectedFiles.innerHTML = '';
+            
+            Array.from(files).forEach(file => {
+                const li = document.createElement('li');
+                li.textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+                selectedFiles.appendChild(li);
+            });
+            
+            fileList.classList.remove('hidden');
+        }
+        
+        // Funciones de cámara
+        function startCamera() {
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                .then(stream => {
+                    currentStream = stream;
+                    const video = document.getElementById('videoElement');
+                    video.srcObject = stream;
+                    
+                    document.getElementById('cameraContainer').classList.remove('hidden');
+                    document.getElementById('startCamera').classList.add('hidden');
+                    document.getElementById('capturePhoto').classList.remove('hidden');
+                    document.getElementById('stopCamera').classList.remove('hidden');
+                })
+                .catch(err => {
+                    showAlert('Error al acceder a la cámara: ' + err.message, 'error');
+                });
+        }
+        
+        function capturePhoto() {
+            const video = document.getElementById('videoElement');
+            const canvas = document.getElementById('canvasElement');
+            const context = canvas.getContext('2d');
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0);
+            
+            const imageData = canvas.toDataURL('image/jpeg');
+            capturedImages.push(imageData);
+            
+            updateImageGallery();
+            showAlert('Imagen capturada correctamente', 'success');
+        }
+        
+        function stopCamera() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
+            }
+            
+            document.getElementById('cameraContainer').classList.add('hidden');
+            document.getElementById('startCamera').classList.remove('hidden');
+            document.getElementById('capturePhoto').classList.add('hidden');
+            document.getElementById('stopCamera').classList.add('hidden');
+        }
+        
+        function updateImageGallery() {
+            const gallery = document.getElementById('imageGallery');
+            gallery.innerHTML = '';
+            
+            capturedImages.forEach((imageData, index) => {
+                const img = document.createElement('img');
+                img.src = imageData;
+                img.style.width = '150px';
+                img.style.height = '200px';
+                img.style.objectFit = 'cover';
+                img.style.margin = '5px';
+                img.style.borderRadius = '5px';
+                gallery.appendChild(img);
+            });
+            
+            if (capturedImages.length > 0) {
+                document.getElementById('capturedImages').classList.remove('hidden');
+            }
+        }
+        
+        // Gestión de clases
+        function showCreateClassForm() {
+            document.getElementById('createClassForm').classList.remove('hidden');
+        }
+        
+        function hideCreateClassForm() {
+            document.getElementById('createClassForm').classList.add('hidden');
+        }
+        
+        function createClass() {
+            const name = document.getElementById('className').value;
+            const description = document.getElementById('classDescription').value;
+            const subject = document.getElementById('classSubject').value;
+            
+            if (!name.trim()) {
+                showAlert('El nombre de la clase es obligatorio', 'error');
+                return;
+            }
+            
+            const newClass = {
+                id: Date.now(),
+                name,
+                description,
                 subject,
-                correction_data.get('puntuacion_total', 0),
-                correction_data.get('puntuacion_maxima', 10),
-                json.dumps(correction_data),
-                ocr_method,
-                text_quality
-            ))
-            conn.commit()
-            conn.close()
-            return True
-        except Exception as e:
-            st.error(f"Error guardando resultado: {str(e)}")
-            return False
-
-    def get_user_stats(self, user_id):
-        conn = sqlite3.connect('mentor_ia.db')
-        df_exams = pd.read_sql_query('''
-            SELECT e.*, g.name as group_name
-            FROM exams e
-            LEFT JOIN groups g ON e.group_id = g.id
-            WHERE e.user_id = ? 
-            ORDER BY e.created_at DESC
-            LIMIT 200
-        ''', conn, params=(user_id,))
-        conn.close()
-        return df_exams
-
-    def get_or_create_user(self, username="usuario_demo", plan="free"):
-        conn = sqlite3.connect('mentor_ia.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
-        user = cursor.fetchone()
-        if not user:
-            cursor.execute('''
-                INSERT INTO users (username, plan, exams_used) VALUES (?, ?, 0)
-            ''', (username, plan))
-            conn.commit()
-            cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
-            user = cursor.fetchone()
-        conn.close()
-        return user
-
-    def create_group(self, user_id, name, subject, description=""):
-        conn = sqlite3.connect('mentor_ia.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO groups (user_id, name, subject, description)
-            VALUES (?, ?, ?, ?)
-        ''', (user_id, name, subject, description))
-        conn.commit()
-        conn.close()
-
-    def get_user_groups(self, user_id):
-        conn = sqlite3.connect('mentor_ia.db')
-        df_groups = pd.read_sql_query('''
-            SELECT * FROM groups WHERE user_id = ? ORDER BY created_at DESC
-        ''', conn, params=(user_id,))
-        conn.close()
-        return df_groups
-
-    def update_user_plan(self, user_id, plan):
-        conn = sqlite3.connect('mentor_ia.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE users SET plan = ? WHERE id = ?
-        ''', (plan, user_id))
-        conn.commit()
-        conn.close()
-
-def show_ocr_configuration():
-    st.subheader("🔧 Configuración Google Vision OCR")
-    corrector = st.session_state.get('corrector')
-    if corrector and hasattr(corrector, 'google_ocr') and corrector.google_ocr.is_configured():
-        st.success("✅ Google Vision OCR configurado correctamente")
-        st.info("API Key: " + "*" * 20 + corrector.google_ocr.api_key[-4:])
-        st.subheader("🧪 Probar OCR")
-        test_image = st.file_uploader("Sube una imagen para probar OCR", type=['png', 'jpg', 'jpeg'])
-        if test_image and st.button("Probar OCR"):
-            with st.spinner("Procesando imagen..."):
-                image_data = test_image.read()
-                text, info = corrector.google_ocr.extract_text_from_image_debug(image_data)
-                if text:
-                    st.success("✅ OCR funcionando correctamente")
-                    st.text_area("Texto extraído:", text, height=200)
-                else:
-                    st.error(f"❌ Error en OCR: {info}")
-    else:
-        st.error("❌ Google Vision OCR no configurado")
-        st.markdown("""
-        **Para configurar Google Vision OCR:**
-        1. Ve a [Google Cloud Console](https://console.cloud.google.com/)
-        2. Habilita la API de Vision
-        3. Obtén tu API Key
-        4. Actualiza la variable `GOOGLE_VISION_API_KEY` en tus secrets o variables de entorno
-        """)
-           
-def show_pricing():
-    """Muestra página de precios"""
-    st.title("💰 Planes y Precios")
-    
-    # Mostrar planes en columnas
-    cols = st.columns(len(PRICING_PLANS))
-    
-    for i, (plan_key, plan) in enumerate(PRICING_PLANS.items()):
-        with cols[i]:
-            # Destacar plan recomendado
-            if plan_key == "basic":
-                st.markdown("### 🌟 " + plan.name)
-                st.markdown("*Recomendado*")
-            else:
-                st.markdown("### " + plan.name)
+                exams: [],
+                createdAt: new Date().toISOString()
+            };
             
-            # Precio
-            if plan.price_monthly == 0:
-                st.markdown("## **GRATIS**")
-            else:
-                st.markdown(f"## **${plan.price_monthly:.2f}**/mes")
+            classes.push(newClass);
+            localStorage.setItem('examClasses', JSON.stringify(classes));
             
-            # Características
-            st.markdown("**Características:**")
-            for feature in plan.features:
-                st.markdown(f"✅ {feature}")
+            loadClasses();
+            updateClassSelect();
+            hideCreateClassForm();
             
-            # Botón de selección
-            if st.button(f"Seleccionar {plan.name}", key=f"select_{plan_key}"):
-                user = st.session_state.get('user')
-                if user:
-                    corrector = st.session_state['corrector']
-                    corrector.update_user_plan(user[0], plan_key)
-                    st.success(f"Plan actualizado a {plan.name}")
-                    st.rerun()
-
-def show_groups_management():
-    """Muestra gestión de grupos"""
-    st.title("👥 Gestión de Grupos")
-    
-    user = st.session_state.get('user')
-    if not user:
-        st.error("Usuario no encontrado")
-        return
-    
-    corrector = st.session_state['corrector']
-    user_plan = PRICING_PLANS.get(user[2], PRICING_PLANS['free'])
-    
-    if not user_plan.can_create_groups:
-        st.warning("⚠️ Necesitas un plan premium para crear grupos")
-        st.info("Los grupos te permiten organizar exámenes por clase o asignatura")
-        return
-    
-    # Crear nuevo grupo
-    st.subheader("➕ Crear Nuevo Grupo")
-    
-    with st.form("new_group_form"):
-        group_name = st.text_input("Nombre del grupo", placeholder="Ej: Matemáticas 3°A")
-        group_subject = st.selectbox("Asignatura", list(SUBJECT_COLORS.keys()))
-        group_description = st.text_area("Descripción (opcional)", placeholder="Descripción del grupo...")
+            // Limpiar formulario
+            document.getElementById('className').value = '';
+            document.getElementById('classDescription').value = '';
+            
+            showAlert('Clase creada correctamente', 'success');
+        }
         
-        if st.form_submit_button("Crear Grupo"):
-            if group_name.strip():
-                corrector.create_group(user[0], group_name.strip(), group_subject, group_description.strip())
-                st.success(f"Grupo '{group_name}' creado exitosamente")
-                st.rerun()
-            else:
-                st.error("El nombre del grupo es obligatorio")
-    
-    # Mostrar grupos existentes
-    st.subheader("📋 Mis Grupos")
-    
-    df_groups = corrector.get_user_groups(user[0])
-    
-    if df_groups.empty:
-        st.info("No tienes grupos creados aún")
-    else:
-        for _, group in df_groups.iterrows():
-            with st.expander(f"📁 {group['name']} ({group['subject']})"):
-                st.write(f"**Asignatura:** {group['subject']}")
-                st.write(f"**Creado:** {group['created_at']}")
-                if group['description']:
-                    st.write(f"**Descripción:** {group['description']}")
+        function loadClasses() {
+            const container = document.getElementById('classesContainer');
+            container.innerHTML = '';
+            
+            if (classes.length === 0) {
+                container.innerHTML = '<div class="alert alert-info">No hay clases creadas aún. Crea tu primera clase para empezar.</div>';
+                return;
+            }
+            
+            classes.forEach(cls => {
+                const card = document.createElement('div');
+                card.className = 'class-card';
+                card.innerHTML = `
+                    <h3>${cls.subject === 'letras' ? '📚' : '🔬'} ${cls.name}</h3>
+                    <p>${cls.description || 'Sin descripción'}</p>
+                    <div class="exam-stats">
+                        <small>Exámenes: ${cls.exams.length}</small>
+                    </div>
+                    <div style="margin-top: 15px;">
+                        <button class="btn btn-primary" onclick="viewClass(${cls.id})">👁️ Ver</button>
+                        <button class="btn btn-warning" onclick="deleteClass(${cls.id})">🗑️ Eliminar</button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+        
+        function updateClassSelect() {
+            const select = document.getElementById('examClass');
+            select.innerHTML = '<option value="">Selecciona una clase</option>';
+            
+            classes.forEach(cls => {
+                const option = document.createElement('option');
+                option.value = cls.id;
+                option.textContent = `${cls.subject === 'letras' ? '📚' : '🔬'} ${cls.name}`;
+                select.appendChild(option);
+            });
+        }
+        
+        function viewClass(classId) {
+            const cls = classes.find(c => c.id === classId);
+            if (!cls) return;
+            
+            // Aquí puedes implementar la vista detallada de la clase
+            showAlert(`Viendo clase: ${cls.name}`, 'info');
+        }
+        
+        function deleteClass(classId) {
+            if (confirm('¿Estás seguro de que quieres eliminar esta clase?')) {
+                classes = classes.filter(c => c.id !== classId);
+                localStorage.setItem('examClasses', JSON.stringify(classes));
+                loadClasses();
+                updateClassSelect();
+                showAlert('Clase eliminada correctamente', 'success');
+            }
+        }
+        
+        // Procesamiento de exámenes
+        async function processExam() {
+            const subject = document.getElementById('examSubject').value;
+            const classId = document.getElementById('examClass').value;
+            const title = document.getElementById('examTitle').value;
+            const rubric = document.getElementById('rubric').value;
+            const fileInput = document.getElementById('fileInput');
+            
+            if (!subject || !title || !fileInput.files.length) {
+                showAlert('Por favor, completa todos los campos obligatorios y selecciona al menos un archivo', 'error');
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                // Simular procesamiento
+                await simulateProcessing();
                 
-                # Estadísticas del grupo
-                conn = sqlite3.connect('mentor_ia.db')
-                group_stats = pd.read_sql_query('''
-                    SELECT COUNT(*) as total_exams, AVG(grade) as avg_grade
-                    FROM exams WHERE group_id = ?
-                ''', conn, params=(group['id'],))
-                conn.close()
+                // Aquí implementarías la lógica real de procesamiento
+                const result = await processExamFiles(fileInput.files, subject, rubric);
                 
-                if group_stats.iloc[0]['total_exams'] > 0:
-                    st.write(f"**Exámenes:** {group_stats.iloc[0]['total_exams']}")
-                    st.write(f"**Promedio:** {group_stats.iloc[0]['avg_grade']:.1f}")
-
-def show_statistics():
-    """Muestra estadísticas detalladas"""
-    st.title("📊 Estadísticas y Análisis")
-    
-    user = st.session_state.get('user')
-    if not user:
-        st.error("Usuario no encontrado")
-        return
-    
-    corrector = st.session_state['corrector']
-    df_exams = corrector.get_user_stats(user[0])
-    
-    if df_exams.empty:
-        st.info("No hay exámenes para mostrar estadísticas")
-        return
-    
-    # Estadísticas generales
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Total Exámenes", len(df_exams))
-    
-    with col2:
-        avg_grade = df_exams['grade'].mean()
-        st.metric("Promedio General", f"{avg_grade:.1f}")
-    
-    with col3:
-        last_exam = df_exams.iloc[0] if not df_exams.empty else None
-        if last_exam is not None:
-            st.metric("Último Examen", f"{last_exam['grade']:.1f}")
-    
-    with col4:
-        user_plan = PRICING_PLANS.get(user[2], PRICING_PLANS['free'])
-        remaining = user_plan.exams_limit - user[3]
-        st.metric("Exámenes Restantes", remaining)
-    
-    # Gráfico de evolución
-    st.subheader("📈 Evolución de Calificaciones")
-    
-    if len(df_exams) > 1:
-        df_exams_sorted = df_exams.sort_values('created_at')
-        
-        fig = px.line(
-            df_exams_sorted, 
-            x='created_at', 
-            y='grade',
-            color='subject',
-            title="Evolución de Calificaciones por Tiempo",
-            labels={'grade': 'Calificación', 'created_at': 'Fecha'}
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # Distribución por asignatura
-    st.subheader("📚 Distribución por Asignatura")
-    
-    subject_stats = df_exams.groupby('subject').agg({
-        'grade': ['count', 'mean', 'std']
-    }).round(2)
-    
-    subject_stats.columns = ['Cantidad', 'Promedio', 'Desv. Estándar']
-    st.dataframe(subject_stats)
-    
-    # Gráfico de barras por asignatura
-    fig_bar = px.bar(
-        df_exams.groupby('subject')['grade'].mean().reset_index(),
-        x='subject',
-        y='grade',
-        title="Promedio por Asignatura",
-        color='subject',
-        color_discrete_map=SUBJECT_COLORS
-    )
-    st.plotly_chart(fig_bar, use_container_width=True)
-    
-    # Calidad de OCR
-    st.subheader("🔍 Calidad de OCR")
-    
-    ocr_quality = df_exams.groupby('ocr_method').agg({
-        'text_quality': 'mean',
-        'grade': 'count'
-    }).round(3)
-    
-    ocr_quality.columns = ['Calidad Promedio', 'Cantidad']
-    st.dataframe(ocr_quality)
-    
-    # Exámenes recientes
-    st.subheader("📋 Exámenes Recientes")
-    
-    recent_exams = df_exams.head(10)[['filename', 'subject', 'grade', 'created_at', 'ocr_method']]
-    st.dataframe(recent_exams)
-
-def show_help():
-    """Muestra página de ayuda"""
-    st.title("❓ Ayuda y Soporte")
-    
-    st.markdown("""
-    ## 🚀 Cómo usar Mentor.ia
-    
-    ### 1. Subir Archivos
-    - **Imágenes**: PNG, JPG, JPEG (máximo 20MB)
-    - **PDFs**: Con texto o imágenes
-    - **Texto**: Archivos .txt
-    
-    ### 2. Configurar Evaluación
-    - Selecciona la asignatura
-    - Define criterios de evaluación
-    - Establece la rúbrica
-    
-    ### 3. Procesamiento
-    - El sistema usa OCR para extraer texto
-    - IA DeepSeek evalúa el contenido
-    - Genera calificación y comentarios
-    
-    ## 🔧 Configuración OCR
-    
-    ### Google Vision OCR (Recomendado)
-    - Precisión avanzada en escritura manual
-    - Reconocimiento de caracteres mejorado
-    - Procesamiento rápido y seguro
-    
-    ### Configuración:
-    1. Ve a [Google Cloud Console](https://console.cloud.google.com/)
-    2. Habilita la API de Vision
-    3. Obtén tu API Key
-    4. Actualiza la variable `GOOGLE_VISION_API_KEY` en tus secrets o variables de entorno
-    
-    ## 💡 Consejos para Mejores Resultados
-    
-    ### Calidad de Imagen
-    - Usa buena iluminación
-    - Evita sombras y reflejos
-    - Letra clara y legible
-    - Resolución alta (mínimo 1080p)
-    
-    ### Escritura
-    - Letra clara y espaciada
-    - Tinta oscura sobre papel blanco
-    - Evita correcciones excesivas
-    - Organiza las respuestas
-    
-    ## 📊 Planes y Límites
-    
-    ### Plan Gratuito
-    - 25 exámenes/mes
-    - Funcionalidades básicas
-    - Sin grupos
-    
-    ### Planes Premium
-    - Más exámenes mensuales
-    - Creación de grupos
-    - OCR avanzado
-    - Estadísticas detalladas
-    
-    ## 🐛 Solución de Problemas
-    
-    ### "No se pudo extraer texto"
-    - Verificar calidad de imagen
-    - Mejorar iluminación
-    - Usar mayor resolución
-    - Verificar configuración OCR
-    
-    ### "Texto extraído muy corto"
-    - Imagen puede estar borrosa
-    - Letra demasiado pequeña
-    - Contraste insuficiente
-    
-    ### "Error en corrección"
-    - Problema de conectividad
-    - Límites de API excedidos
-    - Contenido no válido
-    
-    ## 📧 Contacto
-    
-    Para soporte técnico o consultas:
-    - Email: soporte@mentor-ia.com
-    - Documentación: docs.mentor-ia.com
-    - Estado del servicio: status.mentor-ia.com
-    """)
-
-def main():
-    """Función principal de la aplicación"""
-    
-    # Inicializar corrector
-    if 'corrector' not in st.session_state:
-        st.session_state['corrector'] = ExamCorrector()
-    
-    corrector = st.session_state['corrector']
-    
-    # Resetear límites mensuales
-    corrector.db.reset_monthly_limits()
-    
-    # Obtener o crear usuario
-    if 'user' not in st.session_state:
-        st.session_state['user'] = corrector.get_or_create_user()
-    
-    user = st.session_state['user']
-    user_plan = PRICING_PLANS.get(user[2], PRICING_PLANS['free'])
-    
-    # Sidebar con navegación
-    with st.sidebar:
-        st.title("🎓 Mentor.ia")
-        st.markdown("---")
-        
-        # Información del usuario
-        st.subheader("👤 Usuario")
-        st.write(f"**Plan:** {user_plan.name}")
-        st.write(f"**Exámenes usados:** {user[3]}/{user_plan.exams_limit}")
-        
-        # Barra de progreso
-        usage_pct = (user[3] / user_plan.exams_limit) * 100
-        st.progress(usage_pct / 100)
-        
-        st.markdown("---")
-        
-        # Navegación
-        page = st.selectbox(
-            "Navegar",
-            ["🏠 Inicio", "📝 Corrector", "👥 Grupos", "📊 Estadísticas", "💰 Planes", "🔧 Configuración", "❓ Ayuda"]
-        )
-    
-    # Contenido principal según página seleccionada
-    if page == "🏠 Inicio":
-        show_home()
-    elif page == "📝 Corrector":
-        show_corrector()
-    elif page == "👥 Grupos":
-        show_groups_management()
-    elif page == "📊 Estadísticas":
-        show_statistics()
-    elif page == "💰 Planes":
-        show_pricing()
-    elif page == "🔧 Configuración":
-        show_ocr_configuration()
-    elif page == "❓ Ayuda":
-        show_help()
-
-def show_home():
-    """Página de inicio"""
-    st.title("🎓 Mentor.ia - Corrector Inteligente")
-    
-    st.markdown("""
-    ## Bienvenido a Mentor.ia
-    
-    Tu asistente inteligente para la corrección automática de exámenes.
-    
-    ### ✨ Características principales:
-    - **OCR Avanzado**: Extrae texto de imágenes y PDFs
-    - **IA DeepSeek**: Evaluación inteligente del contenido
-    - **Múltiples Formatos**: Soporta imágenes, PDFs y texto
-    - **Estadísticas**: Análisis detallado del rendimiento
-    - **Grupos**: Organiza exámenes por clase o asignatura
-    
-    ### 🚀 Empezar:
-    1. Ve a **📝 Corrector** para evaluar un examen
-    2. Configura **👥 Grupos** para organizar tus clases
-    3. Revisa **📊 Estadísticas** para análisis detallado
-    """)
-    
-    # Estadísticas rápidas
-    user = st.session_state.get('user')
-    if user:
-        corrector = st.session_state['corrector']
-        df_exams = corrector.get_user_stats(user[0])
-        
-        if not df_exams.empty:
-            st.subheader("📊 Resumen Rápido")
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Exámenes Totales", len(df_exams))
-            
-            with col2:
-                avg_grade = df_exams['grade'].mean()
-                st.metric("Promedio General", f"{avg_grade:.1f}")
-            
-            with col3:
-                last_exam = df_exams.iloc[0] if not df_exams.empty else None
-                if last_exam is not None:
-                    st.metric("Último Examen", f"{last_exam['grade']:.1f}")
-
-def show_corrector():
-    """Página principal del corrector"""
-    st.title("📝 Corrector Inteligente")
-    
-    user = st.session_state.get('user')
-    if not user:
-        st.error("Usuario no encontrado")
-        return
-    
-    corrector = st.session_state['corrector']
-    user_plan = PRICING_PLANS.get(user[2], PRICING_PLANS['free'])
-    
-    # Verificar límites
-    if user[3] >= user_plan.exams_limit:
-        st.error(f"Has alcanzado el límite de {user_plan.exams_limit} exámenes para tu plan {user_plan.name}")
-        st.info("Actualiza tu plan para continuar corrigiendo exámenes")
-        return
-    
-    # Configuración del examen
-    st.subheader("⚙️ Configuración")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        subject = st.selectbox(
-            "Asignatura",
-            list(SUBJECT_COLORS.keys()),
-            help="Selecciona la asignatura del examen"
-        )
-        group_id = None
-        if user_plan.can_create_groups:
-            df_groups = corrector.get_user_groups(user[0])
-            if not df_groups.empty:
-                group_options = ["Sin grupo"] + df_groups['name'].tolist()
-                group_selection = st.selectbox("Grupo", group_options)
-                if group_selection != "Sin grupo":
-                    group_id = df_groups[df_groups['name'] == group_selection]['id'].iloc[0]
-    with col2:
-        evaluation_mode = st.radio(
-            "Modo de Evaluación",
-            ["Automático", "Personalizado"],
-            help="Automático: criterios generados por IA | Personalizado: define tus propios criterios"
-        )
-    if evaluation_mode == "Personalizado":
-        st.subheader("📋 Criterios de Evaluación")
-        col1, col2 = st.columns(2)
-        with col1:
-            criteria = st.text_area(
-                "Criterios de Evaluación",
-                placeholder="Ej: Comprensión conceptual, aplicación de fórmulas, claridad en la explicación...",
-                height=100
-            )
-        with col2:
-            rubric = st.text_area(
-                "Rúbrica de Calificación",
-                placeholder="Ej: Excelente (90-100), Bueno (70-89), Regular (50-69), Deficiente (0-49)",
-                height=100
-            )
-    st.subheader("📤 Subir Examen")
-    uploaded_file = st.file_uploader(
-        "Selecciona el archivo del examen",
-        type=['png', 'jpg', 'jpeg', 'pdf', 'txt'],
-        help="Formatos soportados: PNG, JPG, JPEG, PDF, TXT"
-    )
-    if uploaded_file is not None:
-        st.success(f"Archivo cargado: {uploaded_file.name}")
-        
-        # Lee el archivo SOLO UNA VEZ
-        file_bytes = uploaded_file.read()
-        
-        # Mostrar preview si es imagen
-        if uploaded_file.type.startswith('image/'):
-            st.image(Image.open(BytesIO(file_bytes)), caption="Vista previa", use_column_width=True)
-        
-        # Botón para procesar
-        if st.button("🚀 Procesar Examen", type="primary"):
-            with st.spinner("Procesando examen..."):
-                # Extraer texto usando los bytes leídos
-                text, ocr_method, text_quality = None, None, None
-                if uploaded_file.type.startswith('image/'):
-                    if corrector.google_ocr and corrector.google_ocr.is_configured():
-                        text, info = corrector.google_ocr.extract_text_from_image_debug(file_bytes)
-                        ocr_method = "google_ocr"
-                        text_quality = info.get('avg_confidence', 0.5) if info else 0.0
-                    else:
-                        st.error("OCR no configurado")
-                        return
-                elif uploaded_file.type == "application/pdf":
-                    # Si es PDF, puedes adaptar tu lógica aquí usando file_bytes
-                    text, ocr_method, text_quality = corrector.extract_text_from_file(BytesIO(file_bytes))
-                else:
-                    text, ocr_method, text_quality = corrector.extract_text_from_file(BytesIO(file_bytes))
+                // Guardar resultado
+                const examResult = {
+                    id: Date.now(),
+                    title,
+                    subject,
+                    classId,
+                    corrections: result.corrections,
+                    score: result.score,
+                    processedAt: new Date().toISOString(),
+                    pdfUrl: result.pdfUrl
+                };
                 
-                if text is None:
-                    st.error("No se pudo extraer texto del archivo")
-                    return
+                examResults.push(examResult);
+                localStorage.setItem('examResults', JSON.stringify(examResults));
                 
-                # Mostrar texto extraído
-                with st.expander("📄 Texto Extraído"):
-                    st.text_area("Contenido:", text, height=200)
-                    st.info(f"Método: {ocr_method} | Calidad: {text_quality:.2f}")
+                // Añadir a la clase si se seleccionó una
+                if (classId) {
+                    const cls = classes.find(c => c.id == classId);
+                    if (cls) {
+                        cls.exams.push(examResult.id);
+                        localStorage.setItem('examClasses', JSON.stringify(classes));
+                    }
+                }
                 
-                # Generar criterios automáticamente si es necesario
-                if evaluation_mode == "Automático":
-                    st.info("Generando criterios automáticamente...")
-                    auto_criteria = corrector.generate_criteria_from_text(text, subject)
-                    criteria = auto_criteria['criteria']
-                    rubric = auto_criteria['rubric']
+                hideLoading();
+                showResults(examResult);
+                showTab('results');
+                
+            } catch (error) {
+                hideLoading();
+                showAlert('Error al procesar el examen: ' + error.message, 'error');
+            }
+        }
+        
+        async function processScannedImages() {
+            if (capturedImages.length === 0) {
+                showAlert('No hay imágenes capturadas para procesar', 'error');
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                // Simular procesamiento
+                await simulateProcessing();
+                
+                // Aquí implementarías la lógica real de procesamiento de imágenes
+                const result = await processImages(capturedImages);
+                
+                hideLoading();
+                showAlert('Imágenes procesadas correctamente', 'success');
+                
+            } catch (error) {
+                hideLoading();
+                showAlert('Error al procesar las imágenes: ' + error.message, 'error');
+            }
+        }
+        
+        // Funciones auxiliares de procesamiento
+        async function processExamFiles(files, subject, rubric) {
+            const corrections = [];
+            let totalScore = 0;
+            
+            for (const file of files) {
+                if (file.type === 'application/pdf') {
+                    // Procesar PDF
+                    const text = await extractTextFromPDF(file);
+                    const ocrResult = await performOCR(text, subject);
+                    const correction = await correctWithAI(ocrResult, subject, rubric);
+                    corrections.push(correction);
+                }
+                totalScore += correction.score;
+            }
+            
+            // Generar PDF corregido
+            const pdfUrl = await generateCorrectedPDF(corrections);
+            
+            return {
+                corrections,
+                score: totalScore / corrections.length,
+                pdfUrl
+            };
+        }
+        
+        async function extractTextFromPDF(file) {
+            // Simulación de extracción de texto de PDF
+            // En producción, usarías una librería como PDF.js o pdf2pic + OCR
+            return "Texto extraído del PDF simulado";
+        }
+        
+        async function performOCR(text, subject) {
+            // Determinar qué OCR usar según la asignatura
+            if (subject === 'letras') {
+                return await googleVisionOCR(text);
+            } else {
+                return await mathpixOCR(text);
+            }
+        }
+        
+        async function performOCROnImage(file, subject) {
+            const base64 = await fileToBase64(file);
+            
+            if (subject === 'letras') {
+                return await googleVisionOCR(base64);
+            } else {
+                return await mathpixOCR(base64);
+            }
+        }
+        
+        async function googleVisionOCR(imageData) {
+            // Simulación de Google Vision API
+            // En producción, harías una llamada real a la API
+            return {
+                text: "Texto extraído con Google Vision (simulado)",
+                confidence: 0.95
+            };
+        }
+        
+        async function mathpixOCR(imageData) {
+            // Simulación de Mathpix API
+            // En producción, harías una llamada real a la API
+            return {
+                text: "Ecuaciones y texto matemático extraído con Mathpix (simulado)",
+                latex: "\\int_{0}^{1} x^2 dx = \\frac{1}{3}",
+                confidence: 0.92
+            };
+        }
+        
+        async function correctWithAI(ocrResult, subject, rubric) {
+            // Simulación de corrección con DeepSeek
+            // En producción, harías una llamada real a la API de DeepSeek
+            
+            const prompt = `
+                Corrige el siguiente examen de ${subject}:
+                
+                Texto del examen:
+                ${ocrResult.text}
+                
+                Criterios de corrección:
+                ${rubric || 'Criterios estándar'}
+                
+                Por favor, proporciona:
+                1. Respuestas correctas
+                2. Errores identificados
+                3. Puntuación
+                4. Comentarios de mejora
+            `;
+            
+            // Simulación de respuesta de IA
+            return {
+                originalText: ocrResult.text,
+                errors: [
+                    {
+                        question: "Pregunta 1",
+                        studentAnswer: "Respuesta incorrecta del estudiante",
+                        correctAnswer: "Respuesta correcta",
+                        feedback: "La respuesta no es correcta porque...",
+                        points: 0,
+                        maxPoints: 2
+                    },
+                    {
+                        question: "Pregunta 2", 
+                        studentAnswer: "Respuesta parcialmente correcta",
+                        correctAnswer: "Respuesta completa correcta",
+                        feedback: "La respuesta está bien encaminada pero falta...",
+                        points: 1,
+                        maxPoints: 2
+                    }
+                ],
+                score: 7.5,
+                maxScore: 10,
+                generalFeedback: "El estudiante muestra comprensión básica pero necesita mejorar en..."
+            };
+        }
+        
+        async function generateCorrectedPDF(corrections) {
+            // Generar PDF corregido usando jsPDF
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            let yPosition = 20;
+            
+            // Título
+            doc.setFontSize(16);
+            doc.text('Examen Corregido', 20, yPosition);
+            yPosition += 20;
+            
+            // Procesar cada corrección
+            corrections.forEach((correction, index) => {
+                doc.setFontSize(12);
+                doc.text(`Página ${index + 1}`, 20, yPosition);
+                yPosition += 10;
+                
+                // Mostrar errores
+                correction.errors.forEach((error, errorIndex) => {
+                    doc.setTextColor(255, 0, 0); // Rojo para errores
+                    doc.text(`❌ ${error.question}`, 20, yPosition);
+                    yPosition += 7;
                     
-                    with st.expander("📋 Criterios Generados"):
-                        st.write("**Criterios:**", criteria)
-                        st.write("**Rúbrica:**", rubric)
+                    doc.setTextColor(0, 0, 0); // Negro para texto normal
+                    doc.text(`Respuesta: ${error.studentAnswer}`, 30, yPosition);
+                    yPosition += 7;
+                    
+                    doc.setTextColor(0, 150, 0); // Verde para respuesta correcta
+                    doc.text(`Correcto: ${error.correctAnswer}`, 30, yPosition);
+                    yPosition += 7;
+                    
+                    doc.setTextColor(255, 0, 0); // Rojo para feedback
+                    doc.text(`Comentario: ${error.feedback}`, 30, yPosition);
+                    yPosition += 7;
+                    
+                    doc.setTextColor(0, 0, 0);
+                    doc.text(`Puntos: ${error.points}/${error.maxPoints}`, 30, yPosition);
+                    yPosition += 15;
+                    
+                    // Nueva página si es necesario
+                    if (yPosition > 250) {
+                        doc.addPage();
+                        yPosition = 20;
+                    }
+                });
                 
-                # Corregir examen
-                st.info("Evaluando con IA...")
-                result = corrector.correct_exam(text, criteria, rubric, subject)
-                
-                if result:
-                    # Mostrar resultados
-                    show_exam_results(result)
-                    
-                    # Guardar resultado
-                    corrector.save_exam_result(
-                        user[0], 
-                        group_id, 
-                        uploaded_file.name, 
-                        subject, 
-                        result, 
-                        ocr_method, 
-                        text_quality
-                    )
-                    
-                    # Actualizar usuario en sesión
-                    st.session_state['user'] = corrector.get_or_create_user(user[1])
-                    
-                    st.success("✅ Examen procesado y guardado exitosamente")
-                else:
-                    st.error("Error al procesar el examen")
-
-def show_exam_results(result):
-    """Muestra los resultados de la corrección"""
-    st.subheader("📊 Resultados de la Corrección")
-
-    # Validación para evitar errores
-    if not isinstance(result, dict):
-        st.error("Error interno: el resultado no es un diccionario.")
-        st.write(result)
-        return
-    if 'nota_final' not in result:
-        st.error("No se encontró la clave 'nota_final' en el resultado.")
-        st.write(result)
-        return
-
-    nota_final = result['nota_final']
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric(
-            "Calificación Final",
-            f"{nota_final['puntuacion']:.1f}",
-            f"{nota_final['porcentaje']:.1f}%"
-        )
-    
-    with col2:
-        st.metric(
-            "Letra",
-            nota_final['letra']
-        )
-    
-    with col3:
-        st.metric(
-            "Puntaje",
-            f"{nota_final['puntuacion']}/{nota_final['puntuacion_maxima']}"
-        )
-    
-    # Evaluaciones detalladas
-    if 'evaluaciones' in result:
-        st.subheader("📋 Evaluación Detallada")
+                // Puntuación total
+                doc.setFontSize(14);
+                doc.setTextColor(0, 0, 255); // Azul para puntuación
+                doc.text(`Puntuación total: ${correction.score}/${correction.maxScore}`, 20, yPosition);
+                yPosition += 20;
+            });
+            
+            // Generar URL del PDF
+            const pdfBlob = doc.output('blob');
+            const pdfUrl = URL.createObjectURL(pdfBlob);
+            
+            return pdfUrl;
+        }
         
-        for evaluacion in result['evaluaciones']:
-            with st.expander(f"📝 {evaluacion['seccion']}"):
+        async function processImages(images) {
+            // Procesar las imágenes capturadas
+            const results = [];
+            
+            for (const imageData of images) {
+                const ocrResult = await performOCROnImage(dataURLtoBlob(imageData), 'letras');
+                const correction = await correctWithAI(ocrResult, 'letras', '');
+                results.push(correction);
+            }
+            
+            return results;
+        }
+        
+        // Funciones auxiliares
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = error => reject(error);
+            });
+        }
+        
+        function dataURLtoBlob(dataURL) {
+            const arr = dataURL.split(',');
+            const mime = arr[0].match(/:(.*?);/)[1];
+            const bstr = atob(arr[1]);
+            let n = bstr.length;
+            const u8arr = new Uint8Array(n);
+            while (n--) {
+                u8arr[n] = bstr.charCodeAt(n);
+            }
+            return new Blob([u8arr], { type: mime });
+        }
+        
+        // Mostrar resultados
+        function showResults(examResult) {
+            const container = document.getElementById('resultsContainer');
+            container.innerHTML = '';
+            
+            // Información general
+            const header = document.createElement('div');
+            header.className = 'alert alert-info';
+            header.innerHTML = `
+                <h3>📋 ${examResult.title}</h3>
+                <p><strong>Asignatura:</strong> ${examResult.subject === 'letras' ? '📚 Letras' : '🔬 Ciencias'}</p>
+                <p><strong>Fecha:</strong> ${new Date(examResult.processedAt).toLocaleString()}</p>
+                <p><strong>Puntuación:</strong> ${examResult.score.toFixed(1)}/10</p>
+            `;
+            container.appendChild(header);
+            
+            // Botón de descarga
+            const downloadBtn = document.createElement('button');
+            downloadBtn.className = 'btn btn-success';
+            downloadBtn.innerHTML = '📥 Descargar PDF Corregido';
+            downloadBtn.onclick = () => {
+                const link = document.createElement('a');
+                link.href = examResult.pdfUrl;
+                link.download = `${examResult.title}_corregido.pdf`;
+                link.click();
+            };
+            container.appendChild(downloadBtn);
+            
+            // Resultados de corrección
+            const resultsDiv = document.createElement('div');
+            resultsDiv.className = 'results-section';
+            resultsDiv.innerHTML = '<h4>🔍 Detalle de Correcciones</h4>';
+            
+            examResult.corrections.forEach((correction, index) => {
+                const correctionDiv = document.createElement('div');
+                correctionDiv.innerHTML = `
+                    <h5>Página ${index + 1}</h5>
+                    <p><strong>Puntuación:</strong> ${correction.score}/${correction.maxScore}</p>
+                    <p><strong>Comentario general:</strong> ${correction.generalFeedback}</p>
+                `;
                 
-                # Puntuación de la sección
-                st.write(f"**Puntuación:** {evaluacion['puntos']}/{evaluacion['max_puntos']}")
+                correction.errors.forEach(error => {
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = error.points === error.maxPoints ? 'correction-item correct' : 'correction-item';
+                    errorDiv.innerHTML = `
+                        <h6>${error.question}</h6>
+                        <p><strong>Respuesta del estudiante:</strong> ${error.studentAnswer}</p>
+                        <p><strong>Respuesta correcta:</strong> ${error.correctAnswer}</p>
+                        <p><strong>Comentario:</strong> ${error.feedback}</p>
+                        <p><strong>Puntos:</strong> ${error.points}/${error.maxPoints}</p>
+                    `;
+                    correctionDiv.appendChild(errorDiv);
+                });
                 
-                # Comentario
-                if evaluacion.get('comentario'):
-                    st.write(f"**Comentario:** {evaluacion['comentario']}")
-                
-                # Fortalezas
-                if evaluacion.get('fortalezas'):
-                    st.write("**Fortalezas:**")
-                    for fortaleza in evaluacion['fortalezas']:
-                        st.write(f"✅ {fortaleza}")
-                
-                # Mejoras
-                if evaluacion.get('mejoras'):
-                    st.write("**Áreas de Mejora:**")
-                    for mejora in evaluacion['mejoras']:
-                        st.write(f"📈 {mejora}")
-    
-    # Comentario general
-    if result.get('comentario'):
-        st.subheader("💬 Comentario General")
-        st.write(result['comentario'])
-    
-    # Recomendaciones
-    if result.get('recomendaciones'):
-        st.subheader("💡 Recomendaciones")
-        for recomendacion in result['recomendaciones']:
-            st.write(f"• {recomendacion}")
-    
-    # Información de calidad
-    if result.get('calidad_texto'):
-        st.subheader("🔍 Calidad del Procesamiento")
-        st.info(f"Calidad del texto extraído: {result['calidad_texto']}")
-
-if __name__ == "__main__":
-    main()
-
+                resultsDiv.appendChild(correctionDiv);
+            });
+            
+            container.appendChild(resultsDiv);
+        }
+        
+        function loadResults() {
+            // Cargar resultados previos si existen
+            if (examResults.length > 0) {
+                // Mostrar el último resultado
+                const lastResult = examResults[examResults.length - 1];
+                showResults(lastResult);
+            }
+        }
+        
+        // Funciones de UI
+        function showLoading() {
+            document.getElementById('loadingOverlay').classList.add('active');
+        }
+        
+        function hideLoading() {
+            document.getElementById('loadingOverlay').classList.remove('active');
+        }
+        
+        function showAlert(message, type = 'info') {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.textContent = message;
+            
+            // Insertar al principio del contenido activo
+            const activeTab = document.querySelector('.tab-pane.active');
+            activeTab.insertBefore(alertDiv, activeTab.firstChild);
+            
+            // Eliminar después de 5 segundos
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+        
+        async function simulateProcessing() {
+            const messages = [
+                'Extrayendo texto del documento...',
+                'Analizando contenido con OCR...',
+                'Procesando con IA...',
+                'Generando correcciones...',
+                'Creando PDF corregido...'
+            ];
+            
+            const progressFill = document.getElementById('progressFill');
+            const loadingMessage = document.getElementById('loadingMessage');
+            
+            for (let i = 0; i < messages.length; i++) {
+                loadingMessage.textContent = messages[i];
+                progressFill.style.width = `${((i + 1) / messages.length) * 100}%`;
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+        
+        // Funciones de API reales (para implementar en producción)
+        
+        /*
+        // Ejemplo de implementación real con DeepSeek
+        async function callDeepSeekAPI(prompt) {
+            const response = await fetch(`${API_CONFIG.deepseek.baseUrl}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${API_CONFIG.deepseek.apiKey}`
+                },
+                body: JSON.stringify({
+                    model: 'deepseek-chat',
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'Eres un profesor experto en corrección de exámenes. Analiza el examen y proporciona correcciones detalladas.'
+                        },
+                        {
+                            role: 'user',
+                            content: prompt
+                        }
+                    ],
+                    max_tokens: 4000,
+                    temperature: 0.1
+                })
+            });
+            
+            return await response.json();
+        }
+        
+        // Ejemplo de implementación real con Google Vision
+        async function callGoogleVisionAPI(base64Image) {
+            const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${API_CONFIG.googleVision.apiKey}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    requests: [{
+                        image: {
+                            content: base64Image.split(',')[1]
+                        },
+                        features: [
+                            {
+                                type: 'TEXT_DETECTION',
+                                maxResults: 50
+                            }
+                        ]
+                    }]
+                })
+            });
+            
+            return await response.json();
+        }
+        
+        // Ejemplo de implementación real con Mathpix
+        async function callMathpixAPI(base64Image) {
+            const response = await fetch('https://api.mathpix.com/v3/text', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'app_id': API_CONFIG.mathpix.appId,
+                    'app_key': API_CONFIG.mathpix.appKey
+                },
+                body: JSON.stringify({
+                    src: base64Image,
+                    formats: ['text', 'latex_styled'],
+                    data_options: {
+                        include_asciimath: true,
+                        include_latex: true
+                    }
+                })
+            });
+            
+            return await response.json();
+        }
+        */
+    </script>
+</body>
+</html> subject, rubric);
+                    corrections.push(correction);
+                } else {
+                    // Procesar imagen
+                    const ocrResult = await performOCROnImage(file, subject);
+                    const correction = await correctWithAI(ocrResult,
