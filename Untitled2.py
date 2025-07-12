@@ -692,7 +692,7 @@ def main():
     # Inicializar servicios
     config = APIConfig()
     ocr_service = OCRService(config)
-    ai_service = AIService()
+    ai_service = AIService(config)
     
     # Sidebar para navegación
     with st.sidebar:
