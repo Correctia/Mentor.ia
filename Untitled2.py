@@ -19,8 +19,8 @@ import av
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Corrector de Exámenes IA",
-    page_icon="📝",
+    page_title="Mentor.ia-Coreector de examenes inteligente",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
 )
