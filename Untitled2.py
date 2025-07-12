@@ -462,7 +462,6 @@ class ExamCorrector:
                 "calidad_texto": None,
                 "respuesta_raw": None
             }
-                return result
 
     def save_exam_result(self, user_id, group_id, filename, subject, correction_data, ocr_method, text_quality):
         if not self.db:
