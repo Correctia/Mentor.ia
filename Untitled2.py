@@ -19,7 +19,7 @@ import av
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Mentor.ia-Coreector de examenes inteligente",
+    page_title="Mentor.ia",
     page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
